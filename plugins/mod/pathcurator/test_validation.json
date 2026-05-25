@@ -1,0 +1,33 @@
+[
+  {
+    "name": "Test Pathway",
+    "description": "Testing the new validation with required field",
+    "steps": [
+      {
+        "name": "Step 1: Testing Required Field",
+        "objective": "Test that bookmarks use 'required' boolean field instead of type",
+        "bookmarks": [
+          {
+            "title": "Required Bookmark with Custom Type",
+            "url": "https://example.com/1",
+            "description": "This should be required and have a custom type",
+            "type": "Tutorial",
+            "required": true
+          },
+          {
+            "title": "Bonus Bookmark with Custom Type", 
+            "url": "https://example.com/2",
+            "description": "This should be bonus and have a custom type",
+            "type": "Video Resource",
+            "required": false
+          },
+          {
+            "title": "Default Required (no required field)",
+            "url": "https://example.com/3",
+            "description": "This should default to required when 'required' field is missing"
+          }
+        ]
+      }
+    ]
+  }
+]
