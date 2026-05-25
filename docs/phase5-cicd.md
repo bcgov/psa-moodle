@@ -12,42 +12,20 @@ Production is deliberately not a deploy target. `values-prod.yaml` does not exis
 
 ---
 
-## Step 0 — One-time: commit plugins and theme into the repo
+## Plugin and theme sources
 
-Until now plugins lived only in `../moodle-dev/` and `make sync-plugins` copied them into the gitignored `plugins/` directory. CI can't reach `../moodle-dev` so the plugin source-of-truth has to move into this repo.
+Plugins and the bcgovpsa theme are cloned from GitHub at image build time inside `Containerfile.php`. No local checkout or committed copy is required — CI and local `make build` both pull the latest `main` branch of each repo:
 
-You have two options:
+| Component | GitHub repo |
+|---|---|
+| `block_course_search` | `bcgov/moodle-course-search` |
+| `local_githubsync` | `PSA-Corporate-Learning-Branch/moodle-local_githubsync` |
+| `local_psaelmsync` | `PSA-Corporate-Learning-Branch/psaelmsync` |
+| `mod_pathcurator` | `itr8tech/pathcurator-moodle` |
+| `mod_hvp` | `h5p/moodle-mod_hvp` |
+| `theme_bcgovpsa` | `bcgov/bcgovpsa-moodle` |
 
-### Option A — Flat copy (simpler, recommended for now)
-
-```sh
-make sync-plugins
-git add plugins themes
-git commit -m "Phase 5: bring plugins and theme into the repo for CI builds"
-```
-
-The committed copy becomes the canonical source. `make sync-plugins` still works locally for grabbing fresh changes from `../moodle-dev`, but CI ignores that path entirely.
-
-### Option B — Git subtree (preserves upstream history; better for ongoing plugin development)
-
-Per plugin:
-
-```sh
-git subtree add --prefix=plugins/blocks/course_search \
-  ../moodle-dev/plugins/course_search HEAD --squash
-git subtree add --prefix=plugins/local/githubsync \
-  ../moodle-dev/plugins/githubsync HEAD --squash
-git subtree add --prefix=plugins/local/psaelmsync \
-  ../moodle-dev/plugins/psaelmsync HEAD --squash
-git subtree add --prefix=plugins/mod/pathcurator \
-  ../moodle-dev/plugins/pathcurator HEAD --squash
-git subtree add --prefix=themes/bcgovpsa \
-  ../moodle-dev/themes/bcgovpsa HEAD --squash
-```
-
-Then later: `git subtree pull --prefix=plugins/blocks/course_search ../moodle-dev/plugins/course_search HEAD --squash`.
-
-Either option leaves the CI workflow unchanged — both end with `plugins/` and `themes/` committed in this repo. `.gitignore` no longer excludes them as of Phase 5.
+To pin a plugin to a specific branch or tag, pass `--branch <ref>` on the corresponding `git clone` line in `Containerfile.php`.
 
 ---
 
@@ -154,7 +132,7 @@ Don't. If a Moodle schema upgrade went bad, restore from pgBackRest (see Phase 6
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `build.yml` fails at `make build` with "no such file or directory: plugins/blocks/course_search" | Step 0 not done — plugins still gitignored | Do Step 0 above |
+| `build.yml` fails at `git clone` for a plugin repo | GitHub token lacks SSO authorization for `bcgov` org, or plugin repo is private | Re-authorize with `gh auth refresh -s read:org`, or confirm repo visibility |
 | `build.yml` push step 401s on Artifactory | `ARTIFACTORY_PASSWORD` secret wrong/expired | Regenerate the robot token in Artifactory, update secret |
 | `deploy.yml` fails at `oc login` | Token wrong, or SA rolebinding missing | Re-do Phase 0 Steps 1–4 for the target namespace |
 | `Moodle CLI upgrade` step times out | The php Deployment didn't roll | Inspect `oc rollout status` output in the job logs; usually a Helm value problem |
@@ -165,7 +143,7 @@ Don't. If a Moodle schema upgrade went bad, restore from pgBackRest (see Phase 6
 
 ## Phase 5 acceptance criteria
 
-- [ ] Plugins + theme committed (Step 0 above)
+- [ ] Plugin repos accessible from CI (public, or GitHub token authorized for the orgs)
 - [ ] All eight GitHub secrets populated, two environments created
 - [ ] PR triggers `lint.yml` + `build.yml` (no push) and both pass
 - [ ] Merge to main pushes images to Artifactory and auto-deploys to `a58ce1-dev`

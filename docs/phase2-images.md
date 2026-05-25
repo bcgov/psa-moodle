@@ -42,9 +42,6 @@ VERSION=v0.1.0-dev1
 REGISTRY=artifacts.developer.gov.bc.ca
 REPO=$REGISTRY/a58ce1-tools/psa-moodle
 
-# Sync plugins into the build context (idempotent).
-make sync-plugins
-
 # --- LOCAL variant: tagged "<version>-local" -----------------------------------
 make build MOODLE_CONFIG_VARIANT=local TAG=$VERSION-local
 for c in php web cron; do
