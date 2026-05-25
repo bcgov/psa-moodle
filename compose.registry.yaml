@@ -1,0 +1,16 @@
+# Overlay used by `make smoke-registry` to prove the Artifactory-pushed images
+# can be pulled and run with the same compose stack as Phase 1 local dev.
+#
+# Use: TAG=v0.1.0-dev1-local make smoke-registry
+#
+# Image refs target the "<version>-local" tag — the variant built with
+# MOODLE_CONFIG_VARIANT=local, so config.local.php is baked in and the
+# environment variables in compose.yaml match what the image expects.
+
+services:
+  php:
+    image: artifacts.developer.gov.bc.ca/a58ce1-tools/psa-moodle/php:${TAG:-dev-local}
+  web:
+    image: artifacts.developer.gov.bc.ca/a58ce1-tools/psa-moodle/web:${TAG:-dev-local}
+  cron:
+    image: artifacts.developer.gov.bc.ca/a58ce1-tools/psa-moodle/cron:${TAG:-dev-local}
