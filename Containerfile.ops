@@ -1,0 +1,38 @@
+# Containerfile.ops — small image used by Phase 6 CronJobs.
+#
+# Provides:
+#   - `oc` (cluster client; the ops CronJobs exec into Crunchy and Moodle pods)
+#   - `swaks` (Perl-based SMTP client; talks unauth'd to apps.smtp.gov.bc.ca)
+#   - bash + curl + jq for the orchestration scripts
+#   - the scripts themselves, baked in at /usr/local/bin
+#
+# Built non-root. SCC reassigns UID at admission; group 0 has rwx where needed.
+
+FROM docker.io/library/alpine:3.20
+
+ARG OC_VERSION=4.15.20
+
+RUN apk add --no-cache \
+      bash curl jq ca-certificates \
+      perl perl-net-ssleay \
+      tini \
+      postgresql-client \
+ && curl -fsSL -o /tmp/oc.tar.gz \
+      https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux-${OC_VERSION}.tar.gz \
+ && tar -xzf /tmp/oc.tar.gz -C /usr/local/bin oc \
+ && rm /tmp/oc.tar.gz \
+ && curl -fsSL -o /usr/local/bin/swaks \
+      https://raw.githubusercontent.com/jetmore/swaks/v20240103.0/swaks \
+ && chmod +x /usr/local/bin/swaks /usr/local/bin/oc
+
+# Helper scripts the CronJobs invoke.
+COPY scripts/ops/ /usr/local/bin/
+
+RUN chmod +x /usr/local/bin/*.sh \
+ && adduser -D -u 1001 -g 0 ops \
+ && chown -R ops:0 /home/ops \
+ && chmod -R g+rwX /home/ops
+
+USER 1001
+WORKDIR /home/ops
+ENTRYPOINT ["/sbin/tini", "--"]
