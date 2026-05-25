@@ -1,0 +1,131 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template theme_boost/login
+
+    Login page template
+
+    Example context (json):
+    {
+        "output": {
+            "doctype": "<!DOCTYPE html>",
+            "page_title": "Login page",
+            "favicon": "favicon.ico",
+            "main_content": "<h1>Headers keep HTML validators happy</h1>"
+        }
+    }
+}}
+{{> theme_boost/head }}
+
+<body {{{ bodyattributes }}}>
+{{> core/local/toast/wrapper}}
+
+<div class="bg-light">
+
+    {{{ output.standard_top_of_body_html }}}
+
+    <div class="container pt-3">
+        <div class="row justify-content-md-center">
+            <div class="col-md-8 col-lg-6 mb-5">
+            <div class="p-3 bg-white rounded-lg">
+                {{{ output.main_content }}}
+            </div>
+            </div>
+        </div>
+        <div class="row pb-6 justify-content-md-center">
+            <div class="col-md-6 col-lg-3">
+                <div class="bg-white mb-3 p-3 rounded-lg">
+                    <div class="">
+                        <h5 class="">Enroll via PSA Learning System</h5>
+                        <p class="">Make sure to sign up for your course by 
+                            visiting the PSA Learning System.&nbsp;Once enrolled, 
+                            you will be provided a link to your Moodle course 
+                            with a confirmation email sent to your inbox.
+                            <span style="font-size: 0.9375rem;"></span>
+                        </p>
+                        <a href="https://learning.gov.bc.ca/psc/CHIPSPLM/EMPLOYEE/ELM/c/NUI_FRAMEWORK.PT_LANDINGPAGE.GBL?" target="_blank" class="btn btn-secondary">
+                            PSA Learning System
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-lg-3">
+                <div class="bg-white mb-3 p-3 rounded-lg">
+                    <div class="">
+                        <h5 class="">LearningHUB</h5>
+                        <p class="">
+                            Learning for BC Public Service employees. 
+                            All in one place. <strong>You’re here to learn. 
+                            We’re here to help you.</strong> Take advantage of 
+                            courses, workshops and other career learning available 
+                            to <em>all</em> employees.
+                        </p>
+                        <a href="https://learningcentre.gww.gov.bc.ca/learninghub/" target="_blank" class="btn btn-secondary">
+                            Visit the LearningHUB
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-lg-3">
+                <div class="bg-white mb-3 p-3 rounded-lg">
+                    <div class="">
+                        <h5 class="">Experiencing issues?</h5>
+                        <p class="">Click on the button below for more 
+                            information on how to submit a Service Request 
+                            Form. In the subject area, type, "Moodle", 
+                            select <strong>Corporate Learning</strong>, 
+                            then choose your topic of concern. </p>
+                        <a href="https://www2.gov.bc.ca/gov/content?id=BA01C2B7E36D4AD9A435EF9D36972023" target="_blank" class="btn btn-secondary">
+                            Contact BC PSA
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-lg-3">
+                <div class="bg-white mb-3 p-3 rounded-lg">
+                    <div class="">
+                        <h5 class="">Multi-Factor Authentication</h5>
+                        <p class="">Having trouble with MFA? Get information 
+                        on how to register your government devices, learn 
+                        about your MFA options, additional technical support, 
+                        and find frequently asked questions.</p>
+                        <a href="https://intranet.gov.bc.ca/thehub/ocio/ocio-enterprise-services/information-security-branch/information-security-mfa?" target="_blank" class="btn btn-secondary">
+                            Information on MFA
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+                
+        </div>
+    </div>
+    
+
+    {{> theme_boost/footer }}
+</div>
+
+</body>
+</html>
+{{#js}}
+M.util.js_pending('theme_boost/loader');
+require(['theme_boost/loader'], function() {
+  M.util.js_complete('theme_boost/loader');
+});
+{{/js}}

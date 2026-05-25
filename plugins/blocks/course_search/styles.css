@@ -1,0 +1,80 @@
+/* Course Search Block Styles */
+
+.course-search-form {
+    padding: 10px;
+}
+
+.course-search-form input[type="text"] {
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.course-search-form button {
+    width: 100%;
+}
+
+.search-results {
+    margin-top: 20px;
+}
+
+.search-result-item {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 15px;
+    background: #f9f9f9;
+}
+
+.search-result-title {
+    font-size: 1.1em;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.search-result-title a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.search-result-title a:hover {
+    text-decoration: underline;
+}
+
+.search-result-type {
+    font-size: 0.9em;
+    color: #666;
+    margin-bottom: 10px;
+    font-style: italic;
+}
+
+.search-result-preview {
+    color: #333;
+    line-height: 1.4;
+}
+
+.search-results-count {
+    color: #666;
+    margin-bottom: 20px;
+    font-style: italic;
+}
+
+.search-form-bottom {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #ddd;
+}
+
+.search-form-bottom form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.search-form-bottom input[type="text"] {
+    flex: 1;
+    min-width: 200px;
+}
+
+.search-form-bottom button {
+    flex-shrink: 0;
+}

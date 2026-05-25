@@ -1,0 +1,45 @@
+/** 
+* 
+* BC Public Service Agency's Moodle installation custom CSS 
+* overrides.
+* @author: allan.haggett@gov.bc.ca
+*
+*/
+@font-face {
+    font-family: 'BCSans';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap; /* or block, swap, fallback, optional */
+    src: local('BCSans'),
+            url('/theme/bcgovpsa/fonts/BCSans-Regular.woff2') format('woff2');
+    unicode-range: U+000-5FF; /* Latin glyphs */
+}
+
+:root,
+body {
+    font-family: "BCSans", "Noto Sans", Arial, Helvetica, sans-serif;
+}
+
+#primarynav .dropdown-toggle::after,
+#primarynav .editmode-switch-form label,
+#primarynav .nav-link,
+#primarynav .usertext,
+#primarynav .login a {
+    color: #FFF;
+}
+#primarynav .divider {
+    visibility: hidden;
+}
+
+#primarynav .nav-link:hover, 
+#primarynav .nav-link:focus {
+    background-color: #004477;
+    color: #FFF;
+}
+
+#primarynav .moremenu .nav-link.active,
+#primarynav .moremenu .nav-link.active:focus, 
+#primarynav .moremenu .nav-link.active:hover {
+    border-bottom-color: #eda927;
+    font-weight: bold;
+}
