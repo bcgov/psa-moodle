@@ -50,6 +50,18 @@ spec:
         - {{ .Values.postgres.user.database }}
       # No "options:" → standard read/write on the listed databases.
 
+  {{- if .Values.monitoring.enabled }}
+  monitoring:
+    pgmonitor:
+      exporter:
+        resources:
+          requests:
+            cpu: 1m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+  {{- end }}
+
   backups:
     pgbackrest:
       {{- with .Values.postgres.pgbackrest.image }}

@@ -1,0 +1,180 @@
+{{- if .Values.monitoring.enabled }}
+{{/*
+Observability stack for OpenShift user-workload-monitoring (Prometheus/Thanos).
+Creates: NetworkPolicy (allow scraping), PodMonitor (Crunchy), ServiceMonitor
+(PHP-FPM exporter), PrometheusRule (alerts), AlertmanagerConfig (email routing).
+*/}}
+
+# --- NetworkPolicy: allow Prometheus scraping from openshift-user-workload-monitoring ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-monitoring
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-user-workload-monitoring
+      ports:
+        - protocol: TCP
+          port: 9187   # crunchy-postgres-exporter
+        - protocol: TCP
+          port: 9253   # php-fpm-exporter
+
+---
+# --- PodMonitor: Crunchy Postgres exporter (sidecar on each PG pod) ---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-postgres
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "postgres") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      postgres-operator.crunchydata.com/cluster: {{ include "psa-moodle.postgres.clusterName" . }}
+  podMetricsEndpoints:
+    - port: exporter
+      interval: 30s
+      scrapeTimeout: 10s
+
+---
+# --- ServiceMonitor: PHP-FPM exporter ---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-php
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "php") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 6 }}
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+
+---
+# --- PrometheusRule: alerts for critical operational conditions ---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-alerts
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: psa-moodle.postgres
+      rules:
+        - alert: PostgresConnectionSaturation
+          expr: |
+            sum(ccp_connection_stats_active{pg_cluster="{{ include "psa-moodle.postgres.clusterName" . }}"})
+            / sum(ccp_connection_stats_max_connections{pg_cluster="{{ include "psa-moodle.postgres.clusterName" . }}"})
+            > 0.8
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres connections above 80% capacity"
+            description: "Active connections are {{ "{{" }} $value | humanizePercentage {{ "}}" }} of max_connections."
+
+        - alert: PostgresReplicationLag
+          expr: |
+            ccp_replication_lag_size_bytes{pg_cluster="{{ include "psa-moodle.postgres.clusterName" . }}"}
+            > 104857600
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres replication lag exceeds 100MB"
+            description: "Replica {{ "{{" }} $labels.pod {{ "}}" }} is {{ "{{" }} $value | humanize1024 {{ "}}" }}B behind primary."
+
+        - alert: PostgresStorageFilling
+          expr: |
+            kubelet_volume_stats_used_bytes{persistentvolumeclaim=~".*{{ include "psa-moodle.postgres.clusterName" . }}.*"}
+            / kubelet_volume_stats_capacity_bytes > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres PVC above 80% (auto-shutdown at 90%)"
+
+    - name: psa-moodle.php
+      rules:
+        - alert: PHPFPMQueueSaturated
+          expr: |
+            phpfpm_listen_queue{service="{{ include "psa-moodle.fullname" . }}-php"}
+            > phpfpm_listen_queue_length{service="{{ include "psa-moodle.fullname" . }}-php"} * 0.7
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PHP-FPM listen queue above 70% capacity"
+            description: "FPM workers saturated; requests are queueing."
+
+        - alert: PHPFPMNoActiveWorkers
+          expr: |
+            phpfpm_active_processes{service="{{ include "psa-moodle.fullname" . }}-php"} == 0
+            and phpfpm_listen_queue{service="{{ include "psa-moodle.fullname" . }}-php"} > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PHP-FPM has queued requests but no active workers"
+
+    - name: psa-moodle.platform
+      rules:
+        - alert: HPAMaxedOut
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{namespace="{{ .Release.Namespace }}",
+              horizontalpodautoscaler=~"{{ include "psa-moodle.fullname" . }}.*"}
+            == kube_horizontalpodautoscaler_spec_max_replicas{namespace="{{ .Release.Namespace }}",
+              horizontalpodautoscaler=~"{{ include "psa-moodle.fullname" . }}.*"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "HPA {{ "{{" }} $labels.horizontalpodautoscaler {{ "}}" }} at max replicas for 15m"
+            description: "Consider raising maxReplicas or investigating load source."
+
+        - alert: MoodledataPVCFilling
+          expr: |
+            kubelet_volume_stats_used_bytes{persistentvolumeclaim="{{ include "psa-moodle.fullname" . }}-moodledata"}
+            / kubelet_volume_stats_capacity_bytes > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "moodledata PVC above 85%"
+
+---
+# --- AlertmanagerConfig: route alerts to email via BC Gov SMTP relay ---
+apiVersion: monitoring.coreos.com/v1beta1
+kind: AlertmanagerConfig
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-alerts
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  route:
+    receiver: email
+    groupBy: [severity, alertname]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+  receivers:
+    - name: email
+      emailConfigs:
+        - to: {{ .Values.monitoring.alerts.to | quote }}
+          from: {{ .Values.monitoring.alerts.from | quote }}
+          smarthost: {{ .Values.monitoring.alerts.smtpHost }}:{{ .Values.monitoring.alerts.smtpPort }}
+          requireTLS: false
+          sendResolved: true
+{{- end }}

@@ -75,6 +75,31 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: false
+        {{- if .Values.monitoring.enabled }}
+        - name: php-fpm-exporter
+          image: {{ .Values.monitoring.phpFpmExporter.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9253
+              protocol: TCP
+          env:
+            - name: PHP_FPM_SCRAPE_URI
+              value: "tcp://127.0.0.1:9000/status"
+            - name: PHP_FPM_LOG_LEVEL
+              value: "warn"
+          resources:
+            requests:
+              cpu: 1m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+        {{- end }}
       volumes:
         - name: moodledata
           persistentVolumeClaim:

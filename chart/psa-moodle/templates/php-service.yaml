@@ -13,3 +13,9 @@ spec:
       port: {{ .Values.php.service.port }}
       targetPort: fpm
       protocol: TCP
+    {{- if .Values.monitoring.enabled }}
+    - name: metrics
+      port: 9253
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
