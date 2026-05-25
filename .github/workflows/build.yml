@@ -1,0 +1,88 @@
+# Build container images.
+#
+# On PR: build both variants to verify Containerfiles + Moodle clone succeed.
+#        Do NOT push (PR images aren't useful to anyone outside the build).
+# On main: build + push both variants to Artifactory, tagged with the git SHA.
+#
+# Reuses the Makefile targets `make build` and `make push` so local + CI run
+# the exact same commands.
+
+name: build
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/workflows/lint.yml'
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: artifacts.developer.gov.bc.ca
+  REGISTRY_REPO: a58ce1-tools/psa-moodle
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          # Short git SHA — same tag is reused for the openshift and -local variants.
+          echo "image_tag=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Podman is preinstalled on ubuntu-latest; no setup-podman needed.
+      - name: Podman version
+        run: podman version
+
+      # On PR we just build (no push). On main we use `make push` which also builds.
+      - name: Build (PR — verify only, no push)
+        if: github.event_name == 'pull_request'
+        run: |
+          # Build both variants; same as `make push` minus the push step.
+          make build MOODLE_CONFIG_VARIANT=local    TAG=${{ steps.tag.outputs.image_tag }}-local
+          make build MOODLE_CONFIG_VARIANT=openshift TAG=${{ steps.tag.outputs.image_tag }}
+
+      - name: Log in to Artifactory
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.ARTIFACTORY_PASSWORD }}" | \
+            podman login "$REGISTRY" \
+              --username "${{ secrets.ARTIFACTORY_USERNAME }}" \
+              --password-stdin
+
+      - name: Build + push (main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          make push VERSION=${{ steps.tag.outputs.image_tag }}
+
+      - name: Summary
+        run: |
+          {
+            echo "## build summary"
+            echo
+            echo "- ref: \`${GITHUB_REF}\`"
+            echo "- sha: \`${GITHUB_SHA}\`"
+            echo "- image tag: \`${{ steps.tag.outputs.image_tag }}\`"
+            if [ "${{ github.event_name }}" = "push" ]; then
+              echo "- pushed to: \`$REGISTRY/$REGISTRY_REPO/{php,web,cron}:${{ steps.tag.outputs.image_tag }}\` (openshift variant)"
+              echo "- also pushed: \`...${{ steps.tag.outputs.image_tag }}-local\` (local variant for smoke testing)"
+            else
+              echo "- mode: PR build verification (no push)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

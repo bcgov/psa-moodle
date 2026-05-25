@@ -1,0 +1,67 @@
+# Fast PR feedback: lint everything that doesn't require building or deploying.
+#
+# Runs in parallel with build.yml so a PR can fail fast on chart/scripts issues
+# without waiting for the (~5 min) container build.
+
+name: lint
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  helm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.14.3
+      - name: helm lint (default values)
+        run: helm lint chart/psa-moodle
+      - name: helm lint (values-dev)
+        run: helm lint chart/psa-moodle -f chart/psa-moodle/values-dev.yaml
+      - name: helm lint (values-test)
+        run: helm lint chart/psa-moodle -f chart/psa-moodle/values-test.yaml
+      - name: helm template (values-dev) — must render without errors
+        run: |
+          helm template psa-moodle chart/psa-moodle \
+            -n a58ce1-dev \
+            -f chart/psa-moodle/values-dev.yaml \
+            --set image.tag=ci > /tmp/rendered-dev.yaml
+          grep -c '^kind:' /tmp/rendered-dev.yaml
+      - name: helm template (values-test)
+        run: |
+          helm template psa-moodle chart/psa-moodle \
+            -n a58ce1-test \
+            -f chart/psa-moodle/values-test.yaml \
+            --set image.tag=ci > /tmp/rendered-test.yaml
+
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        # shellcheck is preinstalled on ubuntu-latest.
+        run: |
+          shopt -s globstar nullglob
+          shellcheck --severity=warning scripts/**/*.sh
+
+  yaml:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: yamllint
+        # yamllint is preinstalled on ubuntu-latest.
+        run: |
+          yamllint \
+            -d "{extends: relaxed, rules: {line-length: disable, document-start: disable, truthy: disable, comments: disable}}" \
+            .github chart compose.yaml compose.registry.yaml
