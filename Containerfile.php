@@ -30,15 +30,19 @@ RUN git clone --depth=1 --branch ${MOODLE_BRANCH} --single-branch \
 RUN git clone --recurse-submodules --depth=1 --branch ${HVP_BRANCH} --single-branch \
       https://github.com/h5p/moodle-mod_hvp ${MOODLE_SRC}/mod/hvp
 
-# First-party PSA plugins (synced into the build context by `make sync-plugins`).
-# Layout under plugins/ mirrors Moodle's component-type directory tree.
-COPY plugins/blocks/course_search ${MOODLE_SRC}/blocks/course_search
-COPY plugins/local/githubsync     ${MOODLE_SRC}/local/githubsync
-COPY plugins/local/psaelmsync     ${MOODLE_SRC}/local/psaelmsync
-COPY plugins/mod/pathcurator      ${MOODLE_SRC}/mod/pathcurator
+# First-party PSA plugins — cloned from GitHub at build time.
+RUN git clone --depth=1 --single-branch \
+      https://github.com/bcgov/moodle-course-search.git ${MOODLE_SRC}/blocks/course_search \
+ && git clone --depth=1 --single-branch \
+      https://github.com/PSA-Corporate-Learning-Branch/moodle-local_githubsync.git ${MOODLE_SRC}/local/githubsync \
+ && git clone --depth=1 --single-branch \
+      https://github.com/PSA-Corporate-Learning-Branch/psaelmsync.git ${MOODLE_SRC}/local/psaelmsync \
+ && git clone --depth=1 --single-branch \
+      https://github.com/itr8tech/pathcurator-moodle.git ${MOODLE_SRC}/mod/pathcurator
 
 # BC Gov PSA child theme
-COPY themes/bcgovpsa ${MOODLE_SRC}/theme/bcgovpsa
+RUN git clone --depth=1 --single-branch \
+      https://github.com/bcgov/bcgovpsa-moodle.git ${MOODLE_SRC}/theme/bcgovpsa
 
 # Moodle config: local (Podman compose) or openshift (Helm).
 COPY config/moodle/config.${MOODLE_CONFIG_VARIANT}.php ${MOODLE_SRC}/config.php
