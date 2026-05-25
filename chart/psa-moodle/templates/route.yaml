@@ -1,0 +1,30 @@
+{{- /*
+OpenShift Route. The timeout annotation is the structural fix for the silent
+restore failures called out in the 2026-04-12 restore/storage assessment —
+the previous 180s router timeout sat inside nginx's 600s fastcgi_read_timeout,
+so long restores died at the router before nginx or PHP noticed.
+*/ -}}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "web") | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: {{ .Values.route.timeout | quote }}
+spec:
+  {{- with .Values.route.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ include "psa-moodle.fullname" . }}-web
+    weight: 100
+  port:
+    targetPort: http
+  {{- if .Values.route.tls.enabled }}
+  tls:
+    termination: {{ .Values.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy }}
+  {{- end }}
+  wildcardPolicy: None

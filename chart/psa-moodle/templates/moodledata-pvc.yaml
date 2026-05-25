@@ -1,0 +1,17 @@
+{{- /*
+Shared moodledata volume — RWX, mounted by php and cron pods.
+This is the ONLY shared filesystem in the new architecture. The shared RWX
+application-code volume from moodle-nginx is deliberately not reproduced.
+*/ -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-moodledata
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata") | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: {{ .Values.moodledata.storageClassName | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.moodledata.size }}

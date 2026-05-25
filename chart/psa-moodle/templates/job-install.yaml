@@ -1,0 +1,99 @@
+{{- /*
+One-shot post-install Job that runs Moodle's CLI installer. Helm hook fires
+after Helm reports all resources created; an initContainer then waits for the
+Crunchy primary to actually accept connections before install_database.php
+runs.
+
+Idempotency: install_database.php errors if the DB is already populated, so
+this hook runs only on `helm install` (not `helm upgrade`). For schema
+upgrades on subsequent app upgrades, use `kubectl exec deploy/<release>-php
+-- php admin/cli/upgrade.php`, or wire a separate upgrade hook later.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-install
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "install") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "psa-moodle.componentLabels" (list . "install") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.image.pullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      initContainers:
+        # Wait until Crunchy primary accepts connections. Uses the cron image
+        # because it has psql/pg_isready via the pgsql PHP extension's libpq.
+        - name: wait-for-db
+          image: {{ include "psa-moodle.image.cron" . }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              echo "waiting for Postgres at $DB_HOST:$DB_PORT..."
+              for i in $(seq 1 60); do
+                if php -r 'exit(@pg_connect("host=".getenv("DB_HOST")." port=".getenv("DB_PORT")." dbname=".getenv("DB_NAME")." user=".getenv("DB_USER")." password=".getenv("DB_PASSWORD"))?0:1);' 2>/dev/null; then
+                  echo "Postgres is ready."
+                  exit 0
+                fi
+                echo "  attempt $i/60 — sleeping 5s"
+                sleep 5
+              done
+              echo "Postgres did not become ready in 300s" >&2
+              exit 1
+          env:
+            {{- include "psa-moodle.appEnv" . | nindent 12 }}
+      containers:
+        - name: install
+          image: {{ include "psa-moodle.image.cron" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              php /var/www/html/admin/cli/install_database.php \
+                --agree-license \
+                --adminuser="$MOODLE_ADMIN_USER" \
+                --adminpass="$MOODLE_ADMIN_PASS" \
+                --adminemail="$MOODLE_ADMIN_EMAIL" \
+                --shortname="PSA" \
+                --fullname="PSA Moodle ({{ .Release.Namespace }})"
+          env:
+            {{- include "psa-moodle.appEnv" . | nindent 12 }}
+            - name: MOODLE_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "psa-moodle.fullname" . }}-admin
+                  key: MOODLE_ADMIN_USER
+            - name: MOODLE_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "psa-moodle.fullname" . }}-admin
+                  key: MOODLE_ADMIN_EMAIL
+            - name: MOODLE_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "psa-moodle.fullname" . }}-admin
+                  key: MOODLE_ADMIN_PASS
+          volumeMounts:
+            - name: moodledata
+              mountPath: /var/www/moodledata
+      volumes:
+        - name: moodledata
+          persistentVolumeClaim:
+            claimName: {{ include "psa-moodle.fullname" . }}-moodledata

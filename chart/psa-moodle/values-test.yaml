@@ -1,0 +1,45 @@
+# Overrides for a58ce1-test. Production-shaped topology so multi-pod paths
+# are exercised before any prod talk (per the 2026-04-12 restore assessment's
+# point about prod-only failures emerging with multi-pod request flow).
+
+moodle:
+  wwwroot: "https://psa-moodle-test.apps.silver.devops.gov.bc.ca"
+
+route:
+  host: "psa-moodle-test.apps.silver.devops.gov.bc.ca"
+
+# Multi-replica everywhere so we surface shared-state issues here, not in prod.
+web:
+  replicas: 2
+php:
+  replicas: 2
+
+# Phase 4 hardening: exercise the autoscale path in test so it's not first-touch
+# in prod. Bounds chosen to fit a single-node-failure scenario without blowing
+# the namespace ResourceQuota.
+hpa:
+  web:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+  php:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+
+postgres:
+  instances:
+    replicas: 2
+
+moodledata:
+  size: 20Gi
+
+backup:
+  alerts:
+    to: "Allan.Haggett@gov.bc.ca"
+  # Test is where the restore-rehearsal CronJob actually earns its keep:
+  # multi-pod, prod-shaped data, so a deliberately-corrupted backup will
+  # trigger the same way it would in prod.
+  moodledataSnapshot:
+    snapshotClass: "netapp-file-standard"
+    retentionDays: 14

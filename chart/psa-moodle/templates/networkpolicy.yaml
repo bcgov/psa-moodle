@@ -1,0 +1,269 @@
+{{- /*
+NetworkPolicy: default-deny + explicit allowlist for the psa-moodle release.
+
+These policies apply only to pods matching app.kubernetes.io/instance:
+<release> so they do NOT affect the coexisting moodle-nginx workloads in the
+same namespace (which carry app=moodle, not app.kubernetes.io/instance).
+
+Phase 4 added egress rules: default-deny-egress + DNS, in-cluster pod-to-pod
+allows (web→php, app→valkey, app→postgres), and external 443/25 allows for
+the OAuth2 SSO flow, plugin runtime egress (githubsync, psaelmsync), and
+the backup alert mailer. External 443/25 use 0.0.0.0/0 by default; if BC Gov
+Platform requires per-FQDN restriction, layer an OpenShift EgressFirewall on
+top of this — see docs/phase4-hardening.md.
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+---
+# Default-deny for all psa-moodle pods (ingress only).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-deny-by-default
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  # No ingress rules = deny all ingress for matching pods.
+---
+# OpenShift router → web (HTTP 8080).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-router-to-web
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "web") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.web.service.port }}
+---
+# web → php (FastCGI 9000).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-web-to-php
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "psa-moodle.componentSelectorLabels" (list . "web") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.php.service.port }}
+---
+# php + cron + install → Valkey (6379).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-app-to-valkey
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "valkey") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
+              - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+              - { key: app.kubernetes.io/component, operator: In, values: [php, cron, install] }
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# php + cron + install → Postgres (5432). The Crunchy operator labels its
+# instance pods with postgres-operator.crunchydata.com/cluster=<clusterName>.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-app-to-postgres
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      postgres-operator.crunchydata.com/cluster: {{ include "psa-moodle.postgres.clusterName" . }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
+              - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+              - { key: app.kubernetes.io/component, operator: In, values: [php, cron, install, backup-integrity, restore-rehearsal] }
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- if .Values.networkPolicy.egress.enabled }}
+---
+# Default-deny EGRESS for all psa-moodle pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-deny-egress-by-default
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  # No egress rules = deny all egress for matching pods.
+---
+# DNS egress to kube-system (mandatory — everything fails without name resolution).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-dns-egress
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# web → php (FastCGI 9000) — egress side.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-web-to-php-egress
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "web") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.php.service.port }}
+---
+# php + cron + install → Valkey (6379) — egress side.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-app-to-valkey-egress
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [php, cron, install] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "psa-moodle.componentSelectorLabels" (list . "valkey") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# php + cron + install + backup ops → Postgres (5432) — egress side.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-app-to-postgres-egress
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [php, cron, install, backup-integrity, restore-rehearsal] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              postgres-operator.crunchydata.com/cluster: {{ include "psa-moodle.postgres.clusterName" . }}
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# External HTTPS (443) — covers the kube API server (oc/kubectl from ops Jobs),
+# the OAuth2 IdP (loginproxy.gov.bc.ca etc.), api.github.com (local_githubsync),
+# and the ELM endpoint (local_psaelmsync). Scoped broadly because k8s
+# NetworkPolicy can't express FQDN allowlists — that's an OpenShift
+# EgressFirewall job if Platform requires it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-external-https-egress
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.egress.externalHttpsCidr | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# External SMTP (25) — backup alert mailer to apps.smtp.gov.bc.ca. Scoped to
+# the ops components that actually send alerts; nothing else has SMTP config.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-external-smtp-egress
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [backup-integrity, restore-rehearsal, moodledata-snapshot, moodledata-snapshot-prune] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.egress.externalSmtpCidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backup.alerts.smtpPort }}
+{{- end }}
+{{- end }}

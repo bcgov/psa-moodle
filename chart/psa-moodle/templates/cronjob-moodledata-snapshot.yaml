@@ -1,0 +1,103 @@
+{{- if .Values.backup.moodledataSnapshot.enabled }}
+{{- /*
+Daily VolumeSnapshot of moodledata. Pairs with the pgBackRest-driven Postgres
+backups so the two big stateful pieces (filedir + DB) have a consistent
+recovery path. Snapshots are point-in-time and the storage class controls
+where they live.
+
+Graceful degradation: if no VolumeSnapshotClass is configured, the script logs
+and emails a warning and exits 0 — that's a cluster-config gap, not an app
+fault, and it shouldn't fail the CronJob in perpetuity.
+*/ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-moodledata-snapshot
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata-snapshot") | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.moodledataSnapshot.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "psa-moodle.componentLabels" (list . "moodledata-snapshot") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "psa-moodle.fullname" . }}-ops
+          {{- with .Values.image.pullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: snapshot
+              image: {{ include "psa-moodle.image.ops" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/usr/local/bin/moodledata-snapshot.sh"]
+              env:
+                {{- include "psa-moodle.opsEnv" . | nindent 16 }}
+                - name: SOURCE_PVC
+                  value: {{ printf "%s-moodledata" (include "psa-moodle.fullname" .) | quote }}
+                - name: SNAPSHOT_CLASS
+                  value: {{ .Values.backup.moodledataSnapshot.snapshotClass | quote }}
+              resources:
+                {{- toYaml .Values.backup.moodledataSnapshot.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-moodledata-snapshot-prune
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata-snapshot-prune") | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.moodledataSnapshot.pruneSchedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "psa-moodle.componentLabels" (list . "moodledata-snapshot-prune") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "psa-moodle.fullname" . }}-ops
+          {{- with .Values.image.pullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: prune
+              image: {{ include "psa-moodle.image.ops" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/usr/local/bin/moodledata-snapshot-prune.sh"]
+              env:
+                {{- include "psa-moodle.opsEnv" . | nindent 16 }}
+                - name: SOURCE_PVC
+                  value: {{ printf "%s-moodledata" (include "psa-moodle.fullname" .) | quote }}
+                - name: RETENTION_DAYS
+                  value: {{ .Values.backup.moodledataSnapshot.retentionDays | quote }}
+              resources:
+                {{- toYaml .Values.backup.moodledataSnapshot.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: false
+{{- end }}

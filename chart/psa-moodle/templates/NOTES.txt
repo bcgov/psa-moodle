@@ -1,0 +1,41 @@
+psa-moodle has been installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Wait for the post-install Job to finish (this can take 2–5 minutes; it waits
+for Crunchy Postgres to come up and then runs install_database.php):
+
+  oc -n {{ .Release.Namespace }} get job {{ include "psa-moodle.fullname" . }}-install -w
+
+Watch all release pods:
+
+  oc -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+When everything is Ready, browse to:
+
+  {{- if .Values.route.tls.enabled }}
+  https://{{ .Values.route.host }}
+  {{- else }}
+  http://{{ .Values.route.host }}
+  {{- end }}
+
+Admin credentials are in the {{ include "psa-moodle.fullname" . }}-admin Secret
+(preserved across upgrades via helm.sh/resource-policy: keep):
+
+  oc -n {{ .Release.Namespace }} get secret {{ include "psa-moodle.fullname" . }}-admin \
+    -o jsonpath='{.data.MOODLE_ADMIN_PASS}' | base64 -d ; echo
+
+Useful follow-up commands:
+
+  # Tail PHP logs
+  oc -n {{ .Release.Namespace }} logs deploy/{{ include "psa-moodle.fullname" . }}-php -f
+
+  # Run a Moodle CLI command (e.g. cache purge)
+  oc -n {{ .Release.Namespace }} exec deploy/{{ include "psa-moodle.fullname" . }}-php \
+    -- php /var/www/html/admin/cli/purge_caches.php
+
+  # Inspect Crunchy Postgres state
+  oc -n {{ .Release.Namespace }} get postgrescluster {{ include "psa-moodle.postgres.clusterName" . }}
+  oc -n {{ .Release.Namespace }} get pods -l postgres-operator.crunchydata.com/cluster={{ include "psa-moodle.postgres.clusterName" . }}
+
+Old moodle-nginx workloads in this namespace are not affected by this release
+— they use a different selector (app=moodle vs app.kubernetes.io/instance={{ .Release.Name }}).
+Plan to decommission them after the Phase 7 migration rehearsal.

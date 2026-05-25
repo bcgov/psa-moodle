@@ -1,0 +1,235 @@
+# Defaults for psa-moodle. Override per-environment via values-dev.yaml / values-test.yaml.
+# Production values are deliberately not provided yet — see plan Phase 8.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Container images ----------------------------------------------------------
+# Built and pushed by Phase 5 CI to artifacts.developer.gov.bc.ca/a58ce1-tools/psa-moodle/*.
+# For first-time deploys, push the images manually with the make/buildah commands
+# in docs/phase3-deploy.md, then set image.tag accordingly.
+image:
+  registry: artifacts.developer.gov.bc.ca
+  repository: a58ce1-tools/psa-moodle
+  tag: "dev"
+  pullPolicy: IfNotPresent
+  pullSecret: artifactory-pull
+  # Per-component image name suffix. Final ref = <registry>/<repository>/<name>:<tag>.
+  ops:
+    name: ops
+
+# --- Moodle application config -------------------------------------------------
+moodle:
+  wwwroot: ""                # required — set per environment
+  debug: false
+  # Admin user, used by the post-install Job to seed the install on first deploy.
+  # Stored in a Secret; rotate after install.
+  admin:
+    user: admin
+    email: admin@example.com
+
+# --- Web (nginx) ---------------------------------------------------------------
+web:
+  replicas: 2
+  image:
+    name: web                # full image: <registry>/<repository>/web:<tag>
+  service:
+    port: 8080
+  resources:
+    requests: { cpu: 50m,  memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+
+# --- PHP (php-fpm) -------------------------------------------------------------
+php:
+  replicas: 2
+  image:
+    name: php
+  service:
+    port: 9000
+  resources:
+    requests: { cpu: 200m,  memory: 512Mi }
+    limits:   { cpu: 1000m, memory: 1Gi }
+
+# --- Cron (Moodle CLI) ---------------------------------------------------------
+cron:
+  image:
+    name: cron
+  schedule: "*/1 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+# --- moodledata (shared RWX volume) --------------------------------------------
+moodledata:
+  storageClassName: netapp-file-standard
+  size: 10Gi
+
+# --- Valkey (Linux Foundation Redis fork) --------------------------------------
+# Single-replica in dev/test. Sentinel HA topology is deferred to a Phase 4
+# decision, gated on measured restart impact (see plan).
+valkey:
+  image:
+    repository: docker.io/valkey/valkey
+    tag: 7.2-alpine
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+    limits:   { cpu: 200m, memory: 512Mi }
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClassName: ""     # uses cluster default block storage when empty
+  maxmemory: 256mb
+
+# --- Postgres (Crunchy Postgres for Kubernetes) --------------------------------
+postgres:
+  # Crunchy's PostgresCluster CR.
+  postgresVersion: 15
+  # Operator's default Postgres image; override only if BC Gov mirrors it.
+  image: ""
+  instances:
+    replicas: 2              # 1 primary + 1 hot standby
+    storage: 10Gi
+    storageClassName: ""     # cluster default block storage
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits:   { cpu: 1,    memory: 2Gi }
+  # pgBackRest backup repo (in-cluster PVC; no S3 dependency).
+  pgbackrest:
+    image: ""
+    repoStorage: 20Gi
+    repoStorageClassName: "" # cluster default block storage
+    # Retention: N full backups before old ones are pruned.
+    retentionFull: 7
+    # Schedules (cron): full once a day, incrementals hourly.
+    fullSchedule: "0 2 * * *"
+    incrementalSchedule: "0 * * * *"
+  user:
+    name: moodle
+    database: moodle
+
+# --- OpenShift Route -----------------------------------------------------------
+route:
+  host: ""                   # required — set per environment
+  tls:
+    enabled: true
+    termination: edge        # router terminates; pod talks plain HTTP
+    insecureEdgeTerminationPolicy: Redirect
+  # Must equal-or-exceed nginx fastcgi_read_timeout (900s, see config/nginx).
+  # Default OpenShift Route timeout is 30s; current prod is 180s — both too low.
+  # This is the structural fix for the silent restore failures called out in
+  # the 2026-04-12 restore/storage assessment.
+  timeout: "900s"
+
+# --- PodDisruptionBudgets ------------------------------------------------------
+# Phase 4: protect web + php from voluntary disruptions (node drains, rolling
+# upgrades). maxUnavailable: 1 works for both dev (1 replica → brief outage on
+# drain, acceptable) and test (2 replicas → always 1 serving).
+pdb:
+  enabled: true
+  web:
+    maxUnavailable: 1
+  php:
+    maxUnavailable: 1
+
+# --- Horizontal Pod Autoscaling -----------------------------------------------
+# Phase 4: off by default. values-test.yaml flips it on so prod-shaped scaling
+# is exercised before any prod talk. CPU-based; conservative bounds so a
+# misbehaving cron job can't blow the namespace ResourceQuota.
+hpa:
+  web:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  php:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+# --- Topology spread -----------------------------------------------------------
+# Phase 4: spread web + php across zones on Silver. whenUnsatisfiable:
+# ScheduleAnyway (not DoNotSchedule) so single-AZ degradation doesn't block
+# scheduling — we want resilience, not rigidity.
+topologySpread:
+  enabled: true
+  topologyKey: topology.kubernetes.io/zone
+  maxSkew: 1
+  whenUnsatisfiable: ScheduleAnyway
+
+# --- NetworkPolicy -------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # OpenShift router runs in openshift-ingress; this label matches its namespace.
+  ingressNamespaceSelector:
+    matchLabels:
+      network.openshift.io/policy-group: ingress
+  # Phase 4: tightened egress (default-deny + explicit allows). Toggle off only
+  # if you need to debug an outbound traffic issue with a temporary wider allow.
+  egress:
+    enabled: true
+    # External HTTPS allow CIDR. Default 0.0.0.0/0 because k8s NetworkPolicy
+    # can't express per-FQDN allowlists; OpenShift EgressFirewall is the right
+    # tool if BC Gov Platform mandates per-host restriction. If you have a
+    # vetted BC Gov egress CIDR, override here.
+    externalHttpsCidr: "0.0.0.0/0"
+    # External SMTP allow CIDR (apps.smtp.gov.bc.ca). Same rationale.
+    externalSmtpCidr: "0.0.0.0/0"
+
+# --- Pod security / OpenShift SCC ----------------------------------------------
+# OpenShift's restricted-v2 SCC reassigns UIDs and fsGroup per namespace.
+# Do NOT set runAsUser / fsGroup explicitly — leave it to the SCC.
+podSecurityContext:
+  runAsNonRoot: true
+
+# --- Phase 6: backups, restore rehearsal, and the April-2026 integrity fix -----
+# Crunchy operator already handles pgBackRest scheduling itself (see postgres.*
+# above). The CronJobs here ADD checks on top of that:
+#   - integrity: daily; verifies the repo + canonical Moodle tables
+#   - restoreRehearsal: weekly; provisions a temp cluster from the backup repo
+#   - moodledataSnapshot: daily VolumeSnapshot of the RWX moodledata PVC
+backup:
+  alerts:
+    # Unauth'd BC Gov gov-net SMTP relay; works from inside any Silver namespace.
+    smtpHost: apps.smtp.gov.bc.ca
+    smtpPort: 25
+    from: psa-moodle-noreply@gov.bc.ca
+    # REQUIRED — set in values-<env>.yaml. Comma-separated list of recipients.
+    to: ""
+
+  integrity:
+    enabled: true
+    # 90 min after the pgBackRest full at 02:00 (postgres.pgbackrest.fullSchedule).
+    schedule: "30 3 * * *"
+    maxFullBackupAgeHours: 30
+    resources:
+      requests: { cpu: 50m,  memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+
+  restoreRehearsal:
+    enabled: true
+    # Sunday 05:00 — well outside any deploy or business window.
+    schedule: "0 5 * * 0"
+    timeoutSeconds: 1800
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+
+  moodledataSnapshot:
+    enabled: true
+    schedule: "0 1 * * *"
+    pruneSchedule: "0 4 * * *"
+    # VolumeSnapshotClass for the storage class (netapp-file-standard).
+    # If your cluster's class is named differently, override here. If snapshots
+    # are not supported on the class, leave empty — the CronJob logs + emails
+    # a warning and is a no-op.
+    snapshotClass: ""
+    retentionDays: 14
+    resources:
+      requests: { cpu: 50m,  memory: 64Mi }
+      limits:   { cpu: 200m, memory: 256Mi }
