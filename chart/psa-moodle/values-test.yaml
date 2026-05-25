@@ -8,11 +8,11 @@ moodle:
 route:
   host: "psa-moodle-test.apps.silver.devops.gov.bc.ca"
 
-# Multi-replica everywhere so we surface shared-state issues here, not in prod.
+# Production-shaped replicas: minimum 3 per BC Gov HA guidelines.
 web:
-  replicas: 2
+  replicas: 3
 php:
-  replicas: 2
+  replicas: 3
 
 # Phase 4 hardening: exercise the autoscale path in test so it's not first-touch
 # in prod. Bounds chosen to fit a single-node-failure scenario without blowing
@@ -20,16 +20,16 @@ php:
 hpa:
   web:
     enabled: true
-    minReplicas: 2
-    maxReplicas: 4
+    minReplicas: 3
+    maxReplicas: 5
   php:
     enabled: true
-    minReplicas: 2
+    minReplicas: 3
     maxReplicas: 6
 
 postgres:
   instances:
-    replicas: 2
+    replicas: 3
 
 moodledata:
   size: 20Gi

@@ -30,25 +30,25 @@ moodle:
 
 # --- Web (nginx) ---------------------------------------------------------------
 web:
-  replicas: 2
+  replicas: 3
   image:
     name: web                # full image: <registry>/<repository>/web:<tag>
   service:
     port: 8080
   resources:
-    requests: { cpu: 50m,  memory: 64Mi }
-    limits:   { cpu: 200m, memory: 256Mi }
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { memory: 256Mi }
 
 # --- PHP (php-fpm) -------------------------------------------------------------
 php:
-  replicas: 2
+  replicas: 3
   image:
     name: php
   service:
     port: 9000
   resources:
-    requests: { cpu: 200m,  memory: 512Mi }
-    limits:   { cpu: 1000m, memory: 1Gi }
+    requests: { cpu: 200m, memory: 512Mi }
+    limits:   { memory: 1Gi }
 
 # --- Cron (Moodle CLI) ---------------------------------------------------------
 cron:
@@ -61,7 +61,7 @@ cron:
   failedJobsHistoryLimit: 3
   resources:
     requests: { cpu: 100m, memory: 256Mi }
-    limits:   { cpu: 500m, memory: 512Mi }
+    limits:   { memory: 512Mi }
 
 # --- moodledata (shared RWX volume) --------------------------------------------
 moodledata:
@@ -77,8 +77,8 @@ valkey:
     tag: 7.2-alpine
     pullPolicy: IfNotPresent
   resources:
-    requests: { cpu: 50m,  memory: 128Mi }
-    limits:   { cpu: 200m, memory: 512Mi }
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { memory: 512Mi }
   persistence:
     enabled: true
     size: 2Gi
@@ -92,12 +92,12 @@ postgres:
   # Operator's default Postgres image; override only if BC Gov mirrors it.
   image: ""
   instances:
-    replicas: 2              # 1 primary + 1 hot standby
+    replicas: 3              # 1 primary + 2 hot standbys (BC Gov min for HA DB)
     storage: 10Gi
     storageClassName: ""     # cluster default block storage
     resources:
       requests: { cpu: 250m, memory: 512Mi }
-      limits:   { cpu: 1,    memory: 2Gi }
+      limits:   { memory: 2Gi }
   # pgBackRest backup repo (in-cluster PVC; no S3 dependency).
   pgbackrest:
     image: ""
@@ -143,12 +143,12 @@ pdb:
 hpa:
   web:
     enabled: false
-    minReplicas: 2
-    maxReplicas: 4
+    minReplicas: 3
+    maxReplicas: 5
     targetCPUUtilizationPercentage: 70
   php:
     enabled: false
-    minReplicas: 2
+    minReplicas: 3
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
 
@@ -208,8 +208,8 @@ backup:
     schedule: "30 3 * * *"
     maxFullBackupAgeHours: 30
     resources:
-      requests: { cpu: 50m,  memory: 128Mi }
-      limits:   { cpu: 500m, memory: 512Mi }
+      requests: { cpu: 50m, memory: 128Mi }
+      limits:   { memory: 512Mi }
 
   restoreRehearsal:
     enabled: true
@@ -218,7 +218,7 @@ backup:
     timeoutSeconds: 1800
     resources:
       requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 512Mi }
+      limits:   { memory: 512Mi }
 
   moodledataSnapshot:
     enabled: true
@@ -231,5 +231,5 @@ backup:
     snapshotClass: ""
     retentionDays: 14
     resources:
-      requests: { cpu: 50m,  memory: 64Mi }
-      limits:   { cpu: 200m, memory: 256Mi }
+      requests: { cpu: 50m, memory: 64Mi }
+      limits:   { memory: 256Mi }
