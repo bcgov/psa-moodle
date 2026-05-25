@@ -1,0 +1,45 @@
+# Scheduled weekly rebuild.
+#
+# Every Saturday at 03:00 UTC, re-runs the build + deploy pipeline against main
+# to pick up upstream changes that don't trigger a code push:
+#   - PHP base image security patches (php:8.3-fpm-bookworm)
+#   - Moodle point-release fixes on the MOODLE_405_STABLE branch
+#   - OS package updates in the Debian layer
+#   - Plugin updates on their respective main branches
+#
+# Uses workflow_dispatch to trigger build.yml so the full lint → build → push →
+# deploy chain runs identically to a normal merge.
+
+name: scheduled-rebuild
+
+on:
+  schedule:
+    - cron: "0 3 * * 6"   # Saturday 03:00 UTC
+
+  # Manual trigger for testing the scheduler without waiting for Saturday.
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Trigger rebuild on main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch build workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('Dispatching build.yml on main (scheduled dependency refresh)');
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build.yml',
+              ref: 'main',
+              inputs: {}
+            });
+
+            console.log('Build dispatched. Images will rebuild with latest base layers and plugin code.');
