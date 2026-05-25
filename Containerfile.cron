@@ -1,0 +1,43 @@
+# Containerfile.cron — Moodle CLI cron runner.
+#
+# In OpenShift this becomes a Kubernetes CronJob (1-minute schedule) so each
+# tick is an isolated pod. For local dev, this image runs a tiny shell loop so
+# `podman compose up` gives you working cron without orchestration.
+
+ARG PHP_IMAGE=localhost/psa-moodle-php:dev
+
+FROM ${PHP_IMAGE} AS src
+
+# =============================================================================
+FROM php:8.3-cli-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
+      libfreetype-dev libjpeg62-turbo-dev libpng-dev libwebp-dev \
+      libzip-dev libxml2-dev libxslt-dev libldap-dev \
+      libonig-dev libicu-dev libpq-dev \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+RUN chmod +x /usr/local/bin/install-php-extensions \
+ && install-php-extensions \
+      gd intl ldap exif mbstring opcache \
+      pdo_pgsql pgsql soap xsl zip redis
+
+RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+COPY config/php/php.ini $PHP_INI_DIR/conf.d/zz-moodle.ini
+
+COPY --from=src --chown=www-data:0 /var/www/html /var/www/html
+
+RUN mkdir -p /var/www/moodledata \
+ && chown -R www-data:0 /var/www/moodledata \
+ && chmod -R g+rwX /var/www/moodledata /var/www/html
+
+WORKDIR /var/www/html
+USER www-data
+
+# Local-dev only: tick cron once per minute. In OpenShift, the workload is a
+# CronJob and this CMD is overridden in the Helm chart's Job spec.
+CMD ["sh", "-c", "while true; do php /var/www/html/admin/cli/cron.php 2>&1 || true; sleep 60; done"]
