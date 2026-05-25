@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Local runtime state — bind-mounted into the php/cron containers
+moodledata/
+
+# Plugins and themes are now in-repo (see docs/phase5-cicd.md "Step 0").
+# `make sync-plugins` still works for local dev iteration, but the canonical
+# source-of-truth for CI builds is the committed copy in this repo.
+# Add explicit excludes here only for plugins you do NOT want in CI builds.
+
+# Env files (per-developer overrides)
+.env
+.env.local
+
+# Editor / cache
+.vscode/
+.idea/
+.dccache
+
+# Build artefacts
+*.log
