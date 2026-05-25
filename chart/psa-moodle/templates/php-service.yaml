@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-php
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "php") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 4 }}
+  ports:
+    - name: fpm
+      port: {{ .Values.php.service.port }}
+      targetPort: fpm
+      protocol: TCP

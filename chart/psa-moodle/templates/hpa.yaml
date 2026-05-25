@@ -1,0 +1,69 @@
+{{- /*
+HorizontalPodAutoscalers for web and php.
+
+Off by default in values.yaml; flipped on in values-test.yaml so the
+prod-shaped scale path is exercised before any prod talk (per the 2026-04-12
+assessments' point about prod-only failures emerging under load).
+
+Dev stays single-replica for fast iteration — no HPA, no surprises.
+
+When enabled, the matching Deployment must NOT set spec.replicas, or Helm
+will revert HPA's scale decisions on every upgrade. See web-deployment.yaml
+and php-deployment.yaml for the conditional.
+*/ -}}
+{{- if .Values.hpa.web.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-web
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "web") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "psa-moodle.fullname" . }}-web
+  minReplicas: {{ .Values.hpa.web.minReplicas }}
+  maxReplicas: {{ .Values.hpa.web.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.web.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 30
+{{- end }}
+{{- if .Values.hpa.php.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-php
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "php") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "psa-moodle.fullname" . }}-php
+  minReplicas: {{ .Values.hpa.php.minReplicas }}
+  maxReplicas: {{ .Values.hpa.php.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.php.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 30
+{{- end }}

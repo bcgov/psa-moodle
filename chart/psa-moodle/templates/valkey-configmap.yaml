@@ -1,0 +1,28 @@
+{{- /*
+Valkey config. Mirrors config/valkey/valkey.conf used in local dev, but with
+memory cap and persistence taken from values.yaml so dev/test can be sized
+independently.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "psa-moodle.valkey.fullname" . }}
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "valkey") | nindent 4 }}
+data:
+  valkey.conf: |
+    bind 0.0.0.0 -::*
+    protected-mode no
+    port 6379
+
+    # Lightweight RDB only — Moodle uses Valkey for sessions + cache; in-flight
+    # loss on restart is acceptable.
+    save 60 1000
+    appendonly no
+    dir /data
+
+    maxmemory {{ .Values.valkey.maxmemory }}
+    maxmemory-policy allkeys-lru
+
+    loglevel notice
+    logfile ""

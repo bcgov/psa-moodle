@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "psa-moodle.valkey.serviceName" . }}
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "valkey") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "psa-moodle.componentSelectorLabels" (list . "valkey") | nindent 4 }}
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+      protocol: TCP
