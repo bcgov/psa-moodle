@@ -1,8 +1,7 @@
 # psa-moodle — local development orchestration (Podman).
 #
 # Typical first-run sequence on a fresh checkout:
-#   make sync-plugins   # copy plugins/theme from ../moodle-dev into build context
-#   make build          # build php, web, cron images (in order — web/cron use php)
+#   make build          # build php (clones plugins from GitHub), then web, cron, ops
 #   make up             # start db, cache, php, web, cron
 #   make install        # one-time: run Moodle CLI installer against the running DB
 # Then browse to http://localhost:8080
@@ -41,11 +40,6 @@ SITE_FULLNAME  ?= PSA Moodle (local)
 .PHONY: help
 help:
 	@awk 'BEGIN{printf "Targets:\n"} /^## [a-zA-Z0-9_.-]+:/ {sub(/^## /,""); split($$0,a,": "); printf "  %-16s %s\n", a[1], a[2]}' $(MAKEFILE_LIST)
-
-## sync-plugins: copy plugins + theme from ../moodle-dev into the build context
-.PHONY: sync-plugins
-sync-plugins:
-	@bash scripts/sync-plugins.sh
 
 ## prep: create local bind-mount dirs with permissions the container can write
 .PHONY: prep

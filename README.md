@@ -33,14 +33,12 @@ Production cutover is **out of scope** for the current iteration — we are buil
 ### Prerequisites
 
 - **Podman** ≥ 4.x with `podman compose` available, OR `podman-compose` installed separately. (Docker also works if you alias the commands, but Podman is the supported path here.)
-- Sibling checkout of [`../moodle-dev`](../moodle-dev) containing the first-party plugins and the `bcgovpsa` child theme.
 - ~3 GB free disk for images + DB volume.
 
 ### First-time setup
 
 ```sh
-make sync-plugins   # copies plugins + theme from ../moodle-dev into ./plugins and ./themes
-make build          # builds psa-moodle-php, then psa-moodle-web and psa-moodle-cron from it
+make build          # builds psa-moodle-php (clones plugins + theme from GitHub), then web and cron
 make up             # starts db (Postgres 15), cache (Valkey 7.2), php, web, cron
 make install        # one-time: runs Moodle CLI installer against the running DB
 ```
@@ -78,9 +76,6 @@ psa-moodle/
 │   ├── nginx/default.conf
 │   ├── php/{php.ini,php-fpm.conf}
 │   └── valkey/valkey.conf
-├── scripts/sync-plugins.sh   # rsync from ../moodle-dev/{plugins,themes}/
-├── plugins/                  # GITIGNORED — populated by sync-plugins
-├── themes/                   # GITIGNORED — populated by sync-plugins
 ├── moodledata/               # GITIGNORED — local bind mount for Moodle's data dir
 └── docs/                     # phase 0 deliverables
 ```
@@ -89,12 +84,12 @@ psa-moodle/
 
 | Component | Source | Notes |
 |---|---|---|
-| `block_course_search` | `../moodle-dev/plugins/course_search` | |
-| `local_githubsync` | `../moodle-dev/plugins/githubsync` | |
-| `local_psaelmsync` | `../moodle-dev/plugins/psaelmsync` | |
-| `mod_pathcurator` | `../moodle-dev/plugins/pathcurator` | |
-| `mod_hvp` | upstream `h5p/moodle-mod_hvp` (cloned at build time) | upstream is unmaintained against 4.x — migration to core `mod_h5pactivity` is on the cutover decision list |
-| `theme_bcgovpsa` | `../moodle-dev/themes/bcgovpsa` | child theme, parent is core `boost` |
+| `block_course_search` | [bcgov/moodle-course-search](https://github.com/bcgov/moodle-course-search) | cloned at build time |
+| `local_githubsync` | [PSA-Corporate-Learning-Branch/moodle-local_githubsync](https://github.com/PSA-Corporate-Learning-Branch/moodle-local_githubsync) | cloned at build time |
+| `local_psaelmsync` | [PSA-Corporate-Learning-Branch/psaelmsync](https://github.com/PSA-Corporate-Learning-Branch/psaelmsync) | cloned at build time |
+| `mod_pathcurator` | [itr8tech/pathcurator-moodle](https://github.com/itr8tech/pathcurator-moodle) | cloned at build time |
+| `mod_hvp` | [h5p/moodle-mod_hvp](https://github.com/h5p/moodle-mod_hvp) | upstream is unmaintained against 4.x — migration to core `mod_h5pactivity` is on the cutover decision list |
+| `theme_bcgovpsa` | [bcgov/bcgovpsa-moodle](https://github.com/bcgov/bcgovpsa-moodle) | child theme, parent is core `boost` |
 
 SSO is configured at runtime through Moodle core's OAuth2 support (`admin/tool/oauth2/issuers.php` + the core `auth_oauth2` plugin) — no third-party OIDC plugin is baked into the image. Phase 4 adds the egress NetworkPolicy allows so the OAuth2 flow can reach the IdP.
 
