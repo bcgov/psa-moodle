@@ -21,6 +21,7 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**.md'
+  workflow_dispatch: {}    # allows scheduled-rebuild.yml (and manual re-runs) to trigger
 
 permissions:
   contents: read
@@ -59,15 +60,15 @@ jobs:
           make build MOODLE_CONFIG_VARIANT=openshift TAG=${{ steps.tag.outputs.image_tag }}
 
       - name: Log in to Artifactory
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         run: |
           echo "${{ secrets.ARTIFACTORY_PASSWORD }}" | \
             podman login "$REGISTRY" \
               --username "${{ secrets.ARTIFACTORY_USERNAME }}" \
               --password-stdin
 
-      - name: Build + push (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Build + push (main / dispatch)
+        if: github.event_name != 'pull_request'
         run: |
           make push VERSION=${{ steps.tag.outputs.image_tag }}
 
@@ -79,7 +80,7 @@ jobs:
             echo "- ref: \`${GITHUB_REF}\`"
             echo "- sha: \`${GITHUB_SHA}\`"
             echo "- image tag: \`${{ steps.tag.outputs.image_tag }}\`"
-            if [ "${{ github.event_name }}" = "push" ]; then
+            if [ "${{ github.event_name }}" != "pull_request" ]; then
               echo "- pushed to: \`$REGISTRY/$REGISTRY_REPO/{php,web,cron}:${{ steps.tag.outputs.image_tag }}\` (openshift variant)"
               echo "- also pushed: \`...${{ steps.tag.outputs.image_tag }}-local\` (local variant for smoke testing)"
             else
