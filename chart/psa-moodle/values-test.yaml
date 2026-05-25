@@ -34,6 +34,10 @@ postgres:
 moodledata:
   size: 20Gi
 
+monitoring:
+  alerts:
+    to: "Allan.Haggett@gov.bc.ca"
+
 backup:
   alerts:
     to: "Allan.Haggett@gov.bc.ca"

@@ -187,6 +187,22 @@ networkPolicy:
 podSecurityContext:
   runAsNonRoot: true
 
+# --- Monitoring (OpenShift user-workload-monitoring) --------------------------
+# Enables: Crunchy Postgres exporter sidecar, PHP-FPM exporter sidecar,
+# PodMonitor + ServiceMonitor for Prometheus scraping, PrometheusRule alerts,
+# AlertmanagerConfig for email routing, and the NetworkPolicy for the
+# monitoring namespace to reach metrics ports.
+monitoring:
+  enabled: true
+  phpFpmExporter:
+    image: docker.io/hipages/php-fpm_exporter:2.2.0
+  alerts:
+    smtpHost: apps.smtp.gov.bc.ca
+    smtpPort: 25
+    from: psa-moodle-noreply@gov.bc.ca
+    # REQUIRED — set in values-<env>.yaml.
+    to: ""
+
 # --- Phase 6: backups, restore rehearsal, and the April-2026 integrity fix -----
 # Crunchy operator already handles pgBackRest scheduling itself (see postgres.*
 # above). The CronJobs here ADD checks on top of that:
