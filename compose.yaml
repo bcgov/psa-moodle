@@ -1,0 +1,98 @@
+# Podman-compose stack for local Moodle 4.5 development.
+#
+# Build order is enforced by the Makefile (`make build`) — compose itself
+# consumes prebuilt images by tag so web/cron can pull code from the php image.
+#
+# Bring up: `make up`
+# Install:  `make install`   (one-time, after DB is healthy)
+# Tear down: `make down`
+
+name: psa-moodle
+
+services:
+  db:
+    image: docker.io/library/postgres:15-alpine
+    environment:
+      POSTGRES_USER: moodle
+      POSTGRES_PASSWORD: moodle
+      POSTGRES_DB: moodle
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moodle -d moodle"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "5433:5432"   # host:container, so 5432 stays free for any host install
+
+  cache:
+    image: docker.io/valkey/valkey:7.2-alpine
+    command: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+    volumes:
+      - ./config/valkey/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  php:
+    image: localhost/psa-moodle-php:dev
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: moodle
+      DB_USER: moodle
+      DB_PASSWORD: moodle
+      CACHE_HOST: cache
+      CACHE_PORT: "6379"
+      MOODLE_WWWROOT: http://localhost:8080
+      MOODLE_DEBUG: "1"
+    volumes:
+      - ./moodledata:/var/www/moodledata:z
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php-fpm-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  web:
+    image: localhost/psa-moodle-web:dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      php:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  cron:
+    image: localhost/psa-moodle-cron:dev
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: moodle
+      DB_USER: moodle
+      DB_PASSWORD: moodle
+      CACHE_HOST: cache
+      CACHE_PORT: "6379"
+      MOODLE_WWWROOT: http://localhost:8080
+    volumes:
+      - ./moodledata:/var/www/moodledata:z
+    depends_on:
+      php:
+        condition: service_healthy
+
+volumes:
+  pgdata: {}
+  valkey-data: {}

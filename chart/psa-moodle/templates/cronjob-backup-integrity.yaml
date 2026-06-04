@@ -1,0 +1,52 @@
+{{- if .Values.backup.integrity.enabled }}
+{{- /*
+Daily backup-integrity check. Direct response to the 2026-04 incident
+(sessions table missing, 20-byte gzip files undetected). Verifies the
+pgBackRest repo state AND the canonical-table content of the live primary —
+because the April failure mode was that BOTH the live DB looked partly fine
+and the backups looked partly fine, just not in the same way.
+*/ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-backup-integrity
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "backup-integrity") | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.integrity.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "psa-moodle.componentLabels" (list . "backup-integrity") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "psa-moodle.fullname" . }}-ops
+          {{- with .Values.image.pullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: integrity
+              image: {{ include "psa-moodle.image.ops" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/usr/local/bin/backup-integrity.sh"]
+              env:
+                {{- include "psa-moodle.opsEnv" . | nindent 16 }}
+                - name: MAX_FULL_BACKUP_AGE_HOURS
+                  value: {{ .Values.backup.integrity.maxFullBackupAgeHours | quote }}
+              resources:
+                {{- toYaml .Values.backup.integrity.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: false
+{{- end }}

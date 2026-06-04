@@ -1,0 +1,88 @@
+{{- /*
+Single-replica Valkey for dev/test. Sentinel HA topology is a Phase 4 decision
+gated on measured restart impact (see plan).
+
+OpenShift's restricted-v2 SCC reassigns UIDs and fsGroup at admission, so we
+do NOT set runAsUser/fsGroup here — the upstream valkey/valkey image has /data
+owned by the valkey user, and SCC's fsGroup chown of the mounted PVC makes it
+writable by the reassigned UID's group (group 0).
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "psa-moodle.valkey.fullname" . }}
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "valkey") | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ include "psa-moodle.valkey.serviceName" . }}
+  selector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "valkey") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "psa-moodle.componentLabels" (list . "valkey") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: valkey
+          image: "{{ .Values.valkey.image.repository }}:{{ .Values.valkey.image.tag }}"
+          imagePullPolicy: {{ .Values.valkey.image.pullPolicy }}
+          command:
+            - valkey-server
+            - /usr/local/etc/valkey/valkey.conf
+          ports:
+            - name: valkey
+              containerPort: 6379
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.valkey.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: valkey
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/etc/valkey
+              readOnly: true
+            - name: data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false   # valkey writes to /data + /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "psa-moodle.valkey.fullname" . }}
+            items:
+              - key: valkey.conf
+                path: valkey.conf
+  {{- if .Values.valkey.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "psa-moodle.componentLabels" (list . "valkey") | nindent 10 }}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.valkey.persistence.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.valkey.persistence.size }}
+  {{- end }}

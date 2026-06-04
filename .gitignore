@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Local runtime state — bind-mounted into the php/cron containers
+moodledata/
+
+# Plugins and theme are cloned from GitHub at image build time.
+plugins/
+themes/
+
+# Env files (per-developer overrides)
+.env
+.env.local
+
+# Editor / cache
+.vscode/
+.idea/
+.dccache
+
+# Build artefacts
+*.log

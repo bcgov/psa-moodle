@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-php
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "php") | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.php.enabled }}
+  replicas: {{ .Values.php.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "psa-moodle.componentLabels" (list . "php") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpread.maxSkew }}
+          topologyKey: {{ .Values.topologySpread.topologyKey }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 14 }}
+      {{- end }}
+      containers:
+        - name: php
+          image: {{ include "psa-moodle.image.php" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: fpm
+              containerPort: {{ .Values.php.service.port }}
+              protocol: TCP
+          env:
+            {{- include "psa-moodle.appEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.php.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command: ["php-fpm-healthcheck"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            exec:
+              command: ["php-fpm-healthcheck"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          startupProbe:
+            exec:
+              command: ["php-fpm-healthcheck"]
+            failureThreshold: 30
+            periodSeconds: 5
+          volumeMounts:
+            - name: moodledata
+              mountPath: /var/www/moodledata
+            - name: localcache
+              mountPath: /mnt/ramdisk
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+        {{- if .Values.monitoring.enabled }}
+        - name: php-fpm-exporter
+          image: {{ .Values.monitoring.phpFpmExporter.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9253
+              protocol: TCP
+          env:
+            - name: PHP_FPM_SCRAPE_URI
+              value: "tcp://127.0.0.1:9000/status"
+            - name: PHP_FPM_LOG_LEVEL
+              value: "warn"
+          resources:
+            requests:
+              cpu: 1m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+        {{- end }}
+      volumes:
+        - name: moodledata
+          persistentVolumeClaim:
+            claimName: {{ include "psa-moodle.fullname" . }}-moodledata
+        # Fast local cache — emptyDir backed by memory, mirrors the
+        # filecache/localrequestdir pattern in moodle-nginx.
+        - name: localcache
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi

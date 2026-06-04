@@ -1,0 +1,39 @@
+{{- /*
+PodDisruptionBudgets for web and php.
+
+maxUnavailable: 1 is intentional and works for both topologies:
+  - dev:  1 replica → drain temporarily takes the pod down (acceptable for an
+          iteration env; no SLA).
+  - test: 2 replicas → at most 1 can be down at any time, so request flow keeps
+          going during a node drain or rolling upgrade.
+
+PDBs only constrain *voluntary* disruptions (drains, evictions, rolling
+updates). Node failure is still uncontrolled — that's what topology spread
+across zones is for (see web/php Deployments).
+*/ -}}
+{{- if .Values.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-web
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "web") | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.pdb.web.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "web") | nindent 6 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-php
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "php") | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.pdb.php.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 6 }}
+{{- end }}

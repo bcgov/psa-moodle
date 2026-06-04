@@ -1,0 +1,15 @@
+apiVersion: v2
+name: psa-moodle
+description: PSA Moodle on BC Gov OpenShift — Crunchy Postgres, Valkey, immutable images.
+type: application
+version: 0.1.0
+appVersion: "4.5"
+kubeVersion: ">=1.27.0"
+keywords:
+  - moodle
+  - openshift
+  - bcgov
+home: https://github.com/<org>/psa-moodle
+maintainers:
+  - name: PSA Moodle team
+    email: Allan.Haggett@gov.bc.ca

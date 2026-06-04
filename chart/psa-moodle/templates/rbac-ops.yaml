@@ -1,0 +1,95 @@
+{{- /*
+RBAC for the Phase 6 ops CronJobs. Scope:
+  - exec into Crunchy pods (read pgBackRest state, run psql)
+  - create/delete temporary PostgresCluster CRs for restore rehearsal
+  - create/delete VolumeSnapshots
+  - read Secrets (pguser cred fetch)
+Cluster-scoped reads (VolumeSnapshotClass) are granted via a separate
+RoleBinding that points at a cluster-aggregated role we expect Silver to
+ship. If your cluster doesn't, swap to a ClusterRole + ClusterRoleBinding
+referencing a Role defined in another namespace — see docs/phase6-backups.md.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-ops
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "ops") | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-ops
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "ops") | nindent 4 }}
+rules:
+  # Read live state — Crunchy primary, pgBackRest sidecar, install pods, etc.
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+  # Exec into Crunchy + Moodle pods (this is the load-bearing one).
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  # Pull the auto-generated pguser secret without materialising the password
+  # into the CronJob's own env block.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list]
+  # PostgresCluster CRs — create the rehearsal clone, delete it after.
+  - apiGroups: [postgres-operator.crunchydata.com]
+    resources: [postgresclusters]
+    verbs: [get, list, watch, create, delete]
+  # VolumeSnapshots — daily moodledata snapshot + retention prune.
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshots]
+    verbs: [get, list, watch, create, delete]
+  # PVCs — Crunchy creates these when the rehearsal cluster spins up; we
+  # don't manipulate them, but `oc apply` of the CR transitively touches them.
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, watch]
+  # Job + CronJob status — read-only, for the scripts to find themselves.
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-ops
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "ops") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "psa-moodle.fullname" . }}-ops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "psa-moodle.fullname" . }}-ops
+{{- if .Values.backup.moodledataSnapshot.clusterRoleBinding }}
+---
+# Cluster-scoped read for VolumeSnapshotClass discovery. The ops scripts only
+# call `get volumesnapshotclass <name>` — no create/delete of cluster-scoped
+# resources. If your cluster admin won't grant a ClusterRoleBinding here, the
+# moodledata-snapshot.sh script degrades gracefully (logs + emails a warning).
+#
+# OFF by default: on multi-tenant clusters (e.g. BC Gov Silver) a namespace
+# user has no cluster-scoped RBAC, so applying this fails the whole install.
+# Leave it false and let the snapshot script degrade, or have a cluster-admin
+# apply this binding out-of-band. Only set true if you hold cluster-scoped rights.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-ops-vsc-read
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "ops") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "psa-moodle.fullname" . }}-ops
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:aggregate-to-view   # standard k8s aggregate; covers VolumeSnapshotClass
+{{- end }}

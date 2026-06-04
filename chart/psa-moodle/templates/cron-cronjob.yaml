@@ -1,0 +1,60 @@
+{{- /*
+Moodle cron as a Kubernetes CronJob — isolated pod per tick. Concurrency is
+Forbidden so long-running ticks don't pile up; the moodle-nginx repo's
+long-running cron Deployment is deliberately not reproduced.
+*/ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-cron
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "cron") | nindent 4 }}
+spec:
+  schedule: {{ .Values.cron.schedule | quote }}
+  concurrencyPolicy: {{ .Values.cron.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ .Values.cron.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.cron.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.cron.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "psa-moodle.componentLabels" (list . "cron") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          {{- with .Values.image.pullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: cron
+              image: {{ include "psa-moodle.image.cron" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["php", "/var/www/html/admin/cli/cron.php"]
+              env:
+                {{- include "psa-moodle.appEnv" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.cron.resources | nindent 16 }}
+              volumeMounts:
+                - name: moodledata
+                  mountPath: /var/www/moodledata
+                # $CFG->localcachedir=/mnt/ramdisk/localcache (config.openshift.php)
+                - name: localcache
+                  mountPath: /mnt/ramdisk
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: false
+          volumes:
+            - name: moodledata
+              persistentVolumeClaim:
+                claimName: {{ include "psa-moodle.fullname" . }}-moodledata
+            - name: localcache
+              emptyDir:
+                medium: Memory
+                sizeLimit: 512Mi

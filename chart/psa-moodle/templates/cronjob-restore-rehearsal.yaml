@@ -1,0 +1,54 @@
+{{- if .Values.backup.restoreRehearsal.enabled }}
+{{- /*
+Weekly restore rehearsal. Provisions a temporary PostgresCluster from the
+primary's pgBackRest repo, runs a SQL-level smoke test, deletes the temp
+cluster. Catches the failure mode where the live DB looks fine but the
+backup pipeline is silently broken — the April 2026 root cause.
+
+Emails on success too (single line) so the team has a weekly heartbeat in the
+inbox; that's the cheap insurance against "we stopped checking."
+*/ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-restore-rehearsal
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "restore-rehearsal") | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.restoreRehearsal.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "psa-moodle.componentLabels" (list . "restore-rehearsal") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "psa-moodle.fullname" . }}-ops
+          {{- with .Values.image.pullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: rehearsal
+              image: {{ include "psa-moodle.image.ops" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/usr/local/bin/restore-rehearsal.sh"]
+              env:
+                {{- include "psa-moodle.opsEnv" . | nindent 16 }}
+                - name: REHEARSAL_TIMEOUT_SECONDS
+                  value: {{ .Values.backup.restoreRehearsal.timeoutSeconds | quote }}
+              resources:
+                {{- toYaml .Values.backup.restoreRehearsal.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: false
+{{- end }}

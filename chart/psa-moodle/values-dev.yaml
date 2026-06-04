@@ -1,0 +1,42 @@
+# Overrides for a58ce1-dev. Smaller footprint, single replicas.
+
+moodle:
+  wwwroot: "https://psa-moodle-dev.apps.silver.devops.gov.bc.ca"
+  debug: true
+
+route:
+  host: "psa-moodle-dev.apps.silver.devops.gov.bc.ca"
+
+# Single replicas — dev is for fast iteration, not load.
+web:
+  replicas: 1
+php:
+  replicas: 1
+
+postgres:
+  instances:
+    replicas: 1
+    storage: 5Gi
+  pgbackrest:
+    repoStorage: 10Gi
+    retentionFull: 3
+
+moodledata:
+  size: 5Gi
+
+monitoring:
+  alerts:
+    to: "Allan.Haggett@gov.bc.ca"
+
+backup:
+  alerts:
+    to: "Allan.Haggett@gov.bc.ca"
+  # In dev the integrity check is still useful (cheap), but the weekly restore
+  # rehearsal is overkill for a constantly-resetting environment. Disable it
+  # here; values-test.yaml turns it back on where it actually matters.
+  restoreRehearsal:
+    enabled: false
+  moodledataSnapshot:
+    # Override with your cluster's actual class name once you confirm it.
+    snapshotClass: "netapp-file-standard"
+    retentionDays: 7

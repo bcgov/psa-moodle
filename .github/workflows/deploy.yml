@@ -1,0 +1,164 @@
+# Deploy via Helm.
+#
+# Triggers:
+#   - on push to main, after build.yml succeeds → deploys to a58ce1-dev
+#   - workflow_dispatch → optional manual promotion to a58ce1-test
+#                         (gated by the `test` GitHub Environment, which can
+#                         require reviewers via repo settings)
+#
+# This workflow does NOT have a production path by design — production is a
+# separate Phase 8 decision and its values-prod.yaml does not exist yet.
+
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [dev, test]
+        default: dev
+      image_tag:
+        description: Image tag to deploy (git SHA from a successful build). Leave blank to use latest main.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  OPENSHIFT_SERVER: ${{ secrets.OPENSHIFT_SERVER }}
+
+jobs:
+  resolve:
+    # Skip if the upstream build workflow failed.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.r.outputs.environment }}
+      image_tag: ${{ steps.r.outputs.image_tag }}
+      namespace: ${{ steps.r.outputs.namespace }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Resolve environment + image tag
+        id: r
+        env:
+          DISPATCH_ENV: ${{ inputs.environment }}
+          DISPATCH_TAG: ${{ inputs.image_tag }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            env_name="${DISPATCH_ENV}"
+            tag="${DISPATCH_TAG:-$(git rev-parse --short=7 HEAD)}"
+          else
+            env_name="dev"
+            tag="$(git rev-parse --short=7 HEAD)"
+          fi
+          case "$env_name" in
+            dev)  ns="${{ secrets.OPENSHIFT_NAMESPACE_DEV }}" ;;
+            test) ns="${{ secrets.OPENSHIFT_NAMESPACE_TEST }}" ;;
+            *) echo "unknown env: $env_name" >&2; exit 1 ;;
+          esac
+          echo "environment=$env_name" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$tag"        >> "$GITHUB_OUTPUT"
+          echo "namespace=$ns"         >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      # Wires into GitHub's deployment environments. The `test` environment
+      # can have required reviewers configured under repo Settings → Environments.
+      name: ${{ needs.resolve.outputs.environment }}
+      url: https://psa-moodle-${{ needs.resolve.outputs.environment }}.apps.silver.devops.gov.bc.ca
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.3
+
+      - name: oc login
+        uses: redhat-actions/oc-login@v1
+        with:
+          openshift_server_url: ${{ env.OPENSHIFT_SERVER }}
+          openshift_token: ${{ needs.resolve.outputs.environment == 'test' && secrets.OPENSHIFT_TOKEN_TEST || secrets.OPENSHIFT_TOKEN_DEV }}
+          namespace: ${{ needs.resolve.outputs.namespace }}
+          insecure_skip_tls_verify: false
+
+      - name: Helm preflight (lint + template)
+        run: |
+          helm lint chart/psa-moodle \
+            -f chart/psa-moodle/values-${{ needs.resolve.outputs.environment }}.yaml
+          helm template psa-moodle chart/psa-moodle \
+            -n "${{ needs.resolve.outputs.namespace }}" \
+            -f chart/psa-moodle/values-${{ needs.resolve.outputs.environment }}.yaml \
+            --set image.tag="${{ needs.resolve.outputs.image_tag }}" \
+            > /tmp/rendered.yaml
+          echo "rendered $(grep -c '^kind:' /tmp/rendered.yaml) resources"
+
+      - name: Helm upgrade --install
+        run: |
+          helm upgrade --install psa-moodle chart/psa-moodle \
+            -n "${{ needs.resolve.outputs.namespace }}" \
+            -f chart/psa-moodle/values-${{ needs.resolve.outputs.environment }}.yaml \
+            --set image.tag="${{ needs.resolve.outputs.image_tag }}" \
+            --wait \
+            --timeout 15m
+
+      - name: Moodle CLI upgrade (idempotent — exits cleanly if no schema change)
+        # Skipped on the very first install because no php pod existed before;
+        # post-install Job already initialised the DB.
+        run: |
+          if oc -n "${{ needs.resolve.outputs.namespace }}" get deploy psa-moodle-php >/dev/null 2>&1; then
+            oc -n "${{ needs.resolve.outputs.namespace }}" \
+              rollout status deploy/psa-moodle-php --timeout=5m
+            oc -n "${{ needs.resolve.outputs.namespace }}" \
+              exec deploy/psa-moodle-php -- \
+              php /var/www/html/admin/cli/upgrade.php --non-interactive
+          fi
+
+      - name: Smoke test — Route returns Moodle login page
+        run: |
+          host="psa-moodle-${{ needs.resolve.outputs.environment }}.apps.silver.devops.gov.bc.ca"
+          url="https://${host}/login/index.php"
+          for i in $(seq 1 30); do
+            body=$(curl -fsS --max-time 10 "$url" || true)
+            if echo "$body" | grep -qE 'Log in|loginbox'; then
+              echo "✓ smoke test passed (Moodle login page reachable)"
+              exit 0
+            fi
+            echo "  attempt $i/30 — sleeping 5s"
+            sleep 5
+          done
+          echo "smoke test failed — login page did not render" >&2
+          oc -n "${{ needs.resolve.outputs.namespace }}" get pods -l app.kubernetes.io/instance=psa-moodle
+          oc -n "${{ needs.resolve.outputs.namespace }}" describe route psa-moodle || true
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## deploy summary"
+            echo
+            echo "- environment: \`${{ needs.resolve.outputs.environment }}\`"
+            echo "- namespace: \`${{ needs.resolve.outputs.namespace }}\`"
+            echo "- image tag: \`${{ needs.resolve.outputs.image_tag }}\`"
+            echo "- result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

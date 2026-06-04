@@ -1,0 +1,107 @@
+# Overrides for a PROOF-OF-CONCEPT deploy to a58ce1-dev.
+#
+# Purpose: stand up a working single-replica Moodle in the dev namespace to
+# demonstrate the platform, sized to need the SMALLEST possible quota increase.
+# The untouched BC Gov default namespace quota (0.5 core CPU / 2Gi RAM / 1Gi
+# storage) cannot host Moodle at all, so a modest dev-only bump is mandatory
+# before this will schedule. See docs/poc-quota-request.md for the exact numbers
+# to enter in the Platform Product Registry.
+#
+# Deploy:  helm upgrade --install psa-moodle ./chart/psa-moodle \
+#            -f chart/psa-moodle/values.yaml \
+#            -f chart/psa-moodle/values-poc.yaml \
+#            -n a58ce1-dev
+#
+# This is NOT the dev/test/prod profile. Once the boss demo lands and the full
+# quota increase is approved, switch back to values-dev.yaml / values-test.yaml.
+
+# --- Images: OpenShift internal registry (PoC only) ----------------------------
+# Artifactory has no a58ce1 docker repo provisioned (the defunct project used a
+# legacy registry), so for the PoC we build locally and push to OpenShift's
+# built-in registry, then pull from it in-cluster — no Artifactory, no pull secret.
+#   Push (from laptop): image-registry.apps.silver.devops.gov.bc.ca/a58ce1-dev/<name>:<tag>
+#   Pull (in-pod):      image-registry.openshift-image-registry.svc:5000/a58ce1-dev/<name>:<tag>
+# pullSecret:"" disables the imagePullSecrets block — the namespace SA can pull
+# its own imagestreams automatically. Revert to Artifactory for dev/test/prod.
+image:
+  registry: image-registry.openshift-image-registry.svc:5000
+  repository: a58ce1-dev
+  tag: v0.1.0-poc3          # amd64 + reverseproxy=false baked in (poc1=arm64, poc2=reverseproxy bug)
+  pullSecret: ""
+
+moodle:
+  wwwroot: "https://psa-moodle-dev.apps.silver.devops.gov.bc.ca"
+  debug: true
+
+# --- Cron schedule: forced hourly by BC Gov Kyverno policy ---------------------
+# Silver's `cronjobs-with-pvcs/no-fast-cronjob-with-pvc` policy blocks any
+# CronJob that mounts a PVC from running more often than every 60 minutes — and
+# the Moodle cron mounts moodledata. The chart default (*/1) is rejected at
+# admission. Hourly is fine for a demo. PROPER FIX for dev/test/prod: run cron as
+# a long-running Deployment that loops every 60s (Deployments aren't subject to
+# the CronJob policy), restoring Moodle's expected every-minute cadence.
+cron:
+  schedule: "0 * * * *"
+
+# --- Egress NetworkPolicy: OFF for the PoC --------------------------------------
+# Silver's OVN-Kubernetes would not honour the egress DNS allow rule (neither a
+# namespaceSelector for openshift-dns nor port-53-to-anywhere reliably permitted
+# name resolution), so the default-deny-egress silently broke ALL DNS — nginx
+# couldn't find `php`, the installer couldn't find Postgres. Ingress policy stays
+# on. Re-enabling + fixing egress hardening for dev/test is a tracked follow-up.
+networkPolicy:
+  egress:
+    enabled: false
+
+route:
+  host: "psa-moodle-dev.apps.silver.devops.gov.bc.ca"
+
+# --- Single replicas — a PoC proves the path works, not that it scales. --------
+web:
+  replicas: 1
+php:
+  replicas: 1
+
+# --- Trim storage to the bone: ~7Gi total vs ~22Gi in the dev profile. --------
+# A fresh Moodle install + empty course set needs very little. These can be
+# raised later without redeploying once the bigger quota lands.
+moodledata:
+  size: 2Gi                  # RWX file — app shared volume
+
+postgres:
+  instances:
+    replicas: 1              # no HA standbys for a PoC
+    storage: 2Gi             # RWO — fresh DB is a few hundred MB
+  pgbackrest:
+    repoStorage: 2Gi         # Crunchy requires a repo; keep it minimal
+    retentionFull: 1         # one full backup is enough to prove backups run
+
+valkey:
+  persistence:
+    # Kept enabled (the StatefulSet template has no emptyDir fallback), but
+    # shrunk — it's just a cache, durability is irrelevant for a PoC.
+    size: 1Gi
+
+# --- Cut the observability + extra-backup machinery for the demo. --------------
+# Disabling monitoring drops the php-fpm + postgres exporter sidecars (less CPU/
+# RAM) and the PodMonitor/PrometheusRule/AlertmanagerConfig noise. None of it is
+# needed to show a working Moodle, and it shrinks the quota ask.
+monitoring:
+  enabled: false
+
+backup:
+  alerts:
+    to: "Allan.Haggett@gov.bc.ca"
+  # pgBackRest still runs (Crunchy schedules it inside the cluster). These are
+  # the *add-on* checks on top of that — overkill for a throwaway PoC namespace.
+  integrity:
+    enabled: false
+  restoreRehearsal:
+    enabled: false
+  moodledataSnapshot:
+    enabled: false
+
+# --- PoC resource requests ------------------------------------------------------
+# Left at the base/dev values so behaviour is representative. Totals land at
+# ~0.55 core CPU request + Crunchy repo-host, ~1.3Gi RAM request + repo-host —
+# which is why the dev-namespace ask below is CPU 1 / RAM 3Gi (headroom).

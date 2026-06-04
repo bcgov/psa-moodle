@@ -1,0 +1,96 @@
+{{/*
+Crunchy Postgres for Kubernetes — the operator handles HA, failover, backups,
+and credential rotation. Replaces the MariaDB Galera stack and ~2000 lines of
+shell scripts in the moodle-nginx repo.
+
+The operator creates a Secret named "<cluster>-pguser-<user>" with the keys
+host, port, dbname, user, password, uri, jdbc-uri — referenced by env in the
+php/cron deployments and the install Job.
+*/}}
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: {{ include "psa-moodle.postgres.clusterName" . }}
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "postgres") | nindent 4 }}
+spec:
+  postgresVersion: {{ .Values.postgres.postgresVersion }}
+  {{- with .Values.postgres.image }}
+  image: {{ . }}
+  {{- end }}
+
+  # PG15: hand the Moodle role ownership of the public schema, else every
+  # CREATE TABLE in install_database.php fails "permission denied for schema
+  # public". Runs as superuser at bootstrap. See postgres-init-configmap.yaml.
+  databaseInitSQL:
+    name: {{ include "psa-moodle.postgres.clusterName" . }}-init-sql
+    key: init.sql
+
+  instances:
+    - name: instance1
+      replicas: {{ .Values.postgres.instances.replicas }}
+      resources:
+        {{- toYaml .Values.postgres.instances.resources | nindent 8 }}
+      dataVolumeClaimSpec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.postgres.instances.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.instances.storage }}
+      # Keep replicas off the same node where possible.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    postgres-operator.crunchydata.com/cluster: {{ include "psa-moodle.postgres.clusterName" . }}
+                    postgres-operator.crunchydata.com/instance-set: instance1
+
+  users:
+    - name: {{ .Values.postgres.user.name }}
+      databases:
+        - {{ .Values.postgres.user.database }}
+      # No "options:" → standard read/write on the listed databases.
+
+  {{- if .Values.monitoring.enabled }}
+  monitoring:
+    pgmonitor:
+      exporter:
+        resources:
+          requests:
+            cpu: 1m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+  {{- end }}
+
+  backups:
+    pgbackrest:
+      {{- with .Values.postgres.pgbackrest.image }}
+      image: {{ . }}
+      {{- end }}
+      # Single repo, in-cluster PVC. No S3.
+      repos:
+        - name: repo1
+          volume:
+            volumeClaimSpec:
+              accessModes: [ReadWriteOnce]
+              {{- with .Values.postgres.pgbackrest.repoStorageClassName }}
+              storageClassName: {{ . | quote }}
+              {{- end }}
+              resources:
+                requests:
+                  storage: {{ .Values.postgres.pgbackrest.repoStorage }}
+          # Schedules: pgBackRest cron, runs inside the backup sidecar.
+          schedules:
+            full: {{ .Values.postgres.pgbackrest.fullSchedule | quote }}
+            incremental: {{ .Values.postgres.pgbackrest.incrementalSchedule | quote }}
+      # Operator-side retention policy. pgBackRest prunes after each full backup.
+      global:
+        repo1-retention-full: {{ .Values.postgres.pgbackrest.retentionFull | quote }}
+        repo1-retention-full-type: count

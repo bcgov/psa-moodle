@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-web
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "web") | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.web.enabled }}
+  replicas: {{ .Values.web.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "web") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "psa-moodle.componentLabels" (list . "web") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpread.maxSkew }}
+          topologyKey: {{ .Values.topologySpread.topologyKey }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "psa-moodle.componentSelectorLabels" (list . "web") | nindent 14 }}
+      {{- end }}
+      containers:
+        - name: web
+          image: {{ include "psa-moodle.image.web" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.web.service.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
