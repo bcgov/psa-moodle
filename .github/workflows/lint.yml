@@ -61,7 +61,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: yamllint
         # yamllint is preinstalled on ubuntu-latest.
+        # chart/psa-moodle/templates/ holds Helm Go-templates ({{- ... }}), which
+        # are not valid YAML — they're validated by `helm lint`/`helm template` in
+        # the `helm` job above, so exclude them here.
         run: |
           yamllint \
-            -d "{extends: relaxed, rules: {line-length: disable, document-start: disable, truthy: disable, comments: disable}}" \
+            -d "{extends: relaxed, rules: {line-length: disable, document-start: disable, truthy: disable, comments: disable}, ignore: 'chart/psa-moodle/templates/'}" \
             .github chart compose.yaml compose.registry.yaml

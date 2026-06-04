@@ -51,16 +51,33 @@ jobs:
       - name: Podman version
         run: podman version
 
-      # On PR we just build (no push). On main we use `make push` which also builds.
-      - name: Build (PR — verify only, no push)
-        if: github.event_name == 'pull_request'
+      # Secrets can't be referenced directly in `if:` conditions, so detect the
+      # Artifactory credential here and gate the push steps on the output.
+      # Until the `a58ce1-tools` Artifactory repo is provisioned (see
+      # docs/next-steps.md) the secret is unset, and main builds verify-only
+      # instead of failing. The push path self-enables once the secret is added.
+      - name: Detect registry credentials
+        id: creds
+        env:
+          ARTIFACTORY_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+        run: |
+          if [ -n "$ARTIFACTORY_PASSWORD" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ARTIFACTORY_PASSWORD not set — building without pushing. Provision a58ce1-tools and add the secret to enable push (see docs/next-steps.md)."
+          fi
+
+      # Build-only when this is a PR, or when we have nowhere to push to yet.
+      - name: Build (verify only, no push)
+        if: github.event_name == 'pull_request' || steps.creds.outputs.have != 'true'
         run: |
           # Build both variants; same as `make push` minus the push step.
           make build MOODLE_CONFIG_VARIANT=local    TAG=${{ steps.tag.outputs.image_tag }}-local
           make build MOODLE_CONFIG_VARIANT=openshift TAG=${{ steps.tag.outputs.image_tag }}
 
       - name: Log in to Artifactory
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.creds.outputs.have == 'true'
         run: |
           echo "${{ secrets.ARTIFACTORY_PASSWORD }}" | \
             podman login "$REGISTRY" \
@@ -68,7 +85,7 @@ jobs:
               --password-stdin
 
       - name: Build + push (main / dispatch)
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.creds.outputs.have == 'true'
         run: |
           make push VERSION=${{ steps.tag.outputs.image_tag }}
 
@@ -80,9 +97,11 @@ jobs:
             echo "- ref: \`${GITHUB_REF}\`"
             echo "- sha: \`${GITHUB_SHA}\`"
             echo "- image tag: \`${{ steps.tag.outputs.image_tag }}\`"
-            if [ "${{ github.event_name }}" != "pull_request" ]; then
+            if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ steps.creds.outputs.have }}" = "true" ]; then
               echo "- pushed to: \`$REGISTRY/$REGISTRY_REPO/{php,web,cron}:${{ steps.tag.outputs.image_tag }}\` (openshift variant)"
               echo "- also pushed: \`...${{ steps.tag.outputs.image_tag }}-local\` (local variant for smoke testing)"
+            elif [ "${{ github.event_name }}" != "pull_request" ]; then
+              echo "- mode: build verification (no push — Artifactory credential not set; see docs/next-steps.md)"
             else
               echo "- mode: PR build verification (no push)"
             fi
