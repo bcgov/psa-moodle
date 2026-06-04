@@ -51,10 +51,21 @@ php:
     limits:   { memory: 1Gi }
 
 # --- Cron (Moodle CLI) ---------------------------------------------------------
+# mode: "deployment" runs a single long-running pod that loops cron.php every
+# `intervalSeconds` — the standard for dev/test/prod. It restores Moodle's
+# expected ~minute cadence AND sidesteps two Silver problems the CronJob hits:
+#   1. Kyverno's no-fast-cronjob-with-pvc policy (CronJobs mounting a PVC can't
+#      run more often than hourly; Deployments aren't subject to it).
+#   2. KubeJobFailed alert spam — a Deployment creates no Job objects, so a
+#      failed tick can't leave a failed Job behind for the platform to alert on.
+# mode: "cronjob" keeps the original isolated-pod-per-tick CronJob (hourly on
+# Silver due to #1). Retained as a fallback.
 cron:
+  mode: deployment            # deployment | cronjob
   image:
     name: cron
-  schedule: "*/1 * * * *"
+  intervalSeconds: 60         # deployment mode: seconds between cron.php ticks
+  schedule: "*/1 * * * *"     # cronjob mode only (Kyverno forces hourly on Silver)
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 30
   successfulJobsHistoryLimit: 3

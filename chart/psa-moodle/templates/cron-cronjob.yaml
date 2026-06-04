@@ -1,8 +1,11 @@
 {{- /*
 Moodle cron as a Kubernetes CronJob — isolated pod per tick. Concurrency is
-Forbidden so long-running ticks don't pile up; the moodle-nginx repo's
-long-running cron Deployment is deliberately not reproduced.
+Forbidden so long-running ticks don't pile up. Retained as a fallback; the
+default cron.mode is "deployment" (see cron-deployment.yaml) because on Silver
+the CronJob is throttled to hourly by Kyverno and each failed tick leaves a
+failed Job object that fires a KubeJobFailed platform alert.
 */ -}}
+{{- if eq .Values.cron.mode "cronjob" }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -58,3 +61,4 @@ spec:
               emptyDir:
                 medium: Memory
                 sizeLimit: 512Mi
+{{- end }}
