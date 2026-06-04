@@ -22,6 +22,10 @@ one-person, one-machine dependency.
 - Once provisioned, add the `ARTIFACTORY_USERNAME` / `ARTIFACTORY_PASSWORD`
   GitHub Actions secrets. `build.yml` already builds `linux/amd64` natively (no
   QEMU) and will start pushing automatically once the secret is present.
+- Add the OpenShift deploy secrets so `deploy.yml` can run: `OPENSHIFT_SERVER`,
+  `OPENSHIFT_TOKEN_DEV` / `OPENSHIFT_TOKEN_TEST`, and `OPENSHIFT_NAMESPACE_DEV` /
+  `OPENSHIFT_NAMESPACE_TEST`. Until these exist the deploy job skips itself (it
+  no longer fails the pipeline); it self-enables once they're set.
 - Point the existing weekly `scheduled-rebuild.yml` at the real registry.
 - **Outcome:** a `git push` deploys; no laptop in the loop.
 
