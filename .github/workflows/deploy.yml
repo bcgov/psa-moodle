@@ -44,6 +44,7 @@ jobs:
       environment: ${{ steps.r.outputs.environment }}
       image_tag: ${{ steps.r.outputs.image_tag }}
       namespace: ${{ steps.r.outputs.namespace }}
+      can_deploy: ${{ steps.r.outputs.can_deploy }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,6 +56,13 @@ jobs:
         env:
           DISPATCH_ENV: ${{ inputs.environment }}
           DISPATCH_TAG: ${{ inputs.image_tag }}
+          # Secrets can't be used in `if:`, so detect them here and gate the
+          # deploy job on can_deploy. Until the OpenShift deploy secrets are
+          # configured (see docs/next-steps.md) the deploy job is skipped rather
+          # than failing at oc-login. It self-enables once the secrets are set.
+          OC_SERVER: ${{ secrets.OPENSHIFT_SERVER }}
+          OC_TOKEN_DEV: ${{ secrets.OPENSHIFT_TOKEN_DEV }}
+          OC_TOKEN_TEST: ${{ secrets.OPENSHIFT_TOKEN_TEST }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             env_name="${DISPATCH_ENV}"
@@ -64,16 +72,24 @@ jobs:
             tag="$(git rev-parse --short=7 HEAD)"
           fi
           case "$env_name" in
-            dev)  ns="${{ secrets.OPENSHIFT_NAMESPACE_DEV }}" ;;
-            test) ns="${{ secrets.OPENSHIFT_NAMESPACE_TEST }}" ;;
+            dev)  ns="${{ secrets.OPENSHIFT_NAMESPACE_DEV }}";  tok="$OC_TOKEN_DEV"  ;;
+            test) ns="${{ secrets.OPENSHIFT_NAMESPACE_TEST }}"; tok="$OC_TOKEN_TEST" ;;
             *) echo "unknown env: $env_name" >&2; exit 1 ;;
           esac
+          if [ -n "$OC_SERVER" ] && [ -n "$tok" ]; then
+            can_deploy=true
+          else
+            can_deploy=false
+            echo "::notice::OpenShift deploy secrets not set (OPENSHIFT_SERVER / OPENSHIFT_TOKEN_DEV|TEST) — skipping deploy to '$env_name'. Configure them (and Artifactory image push) to enable. See docs/next-steps.md."
+          fi
           echo "environment=$env_name" >> "$GITHUB_OUTPUT"
           echo "image_tag=$tag"        >> "$GITHUB_OUTPUT"
           echo "namespace=$ns"         >> "$GITHUB_OUTPUT"
+          echo "can_deploy=$can_deploy" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: resolve
+    if: needs.resolve.outputs.can_deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
