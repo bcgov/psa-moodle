@@ -1,0 +1,18 @@
+{{/*
+PostgreSQL 15 revokes CREATE on the `public` schema from everyone except the
+schema owner, so a fresh Moodle install fails every CREATE TABLE with
+"permission denied for schema public". Crunchy runs this SQL as the postgres
+superuser at cluster bootstrap (spec.databaseInitSQL) to hand the Moodle role
+ownership of public. Idempotent — safe to re-run.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "psa-moodle.postgres.clusterName" . }}-init-sql
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "postgres") | nindent 4 }}
+data:
+  init.sql: |
+    \c {{ .Values.postgres.user.database }}
+    GRANT ALL ON SCHEMA public TO {{ .Values.postgres.user.name }};
+    ALTER SCHEMA public OWNER TO {{ .Values.postgres.user.name }};

@@ -67,11 +67,17 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ include "psa-moodle.fullname" . }}-ops
+{{- if .Values.backup.moodledataSnapshot.clusterRoleBinding }}
 ---
 # Cluster-scoped read for VolumeSnapshotClass discovery. The ops scripts only
 # call `get volumesnapshotclass <name>` — no create/delete of cluster-scoped
 # resources. If your cluster admin won't grant a ClusterRoleBinding here, the
 # moodledata-snapshot.sh script degrades gracefully (logs + emails a warning).
+#
+# OFF by default: on multi-tenant clusters (e.g. BC Gov Silver) a namespace
+# user has no cluster-scoped RBAC, so applying this fails the whole install.
+# Leave it false and let the snapshot script degrade, or have a cluster-admin
+# apply this binding out-of-band. Only set true if you hold cluster-scoped rights.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -86,3 +92,4 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: system:aggregate-to-view   # standard k8s aggregate; covers VolumeSnapshotClass
+{{- end }}

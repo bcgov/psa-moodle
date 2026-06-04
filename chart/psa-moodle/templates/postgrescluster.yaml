@@ -19,6 +19,13 @@ spec:
   image: {{ . }}
   {{- end }}
 
+  # PG15: hand the Moodle role ownership of the public schema, else every
+  # CREATE TABLE in install_database.php fails "permission denied for schema
+  # public". Runs as superuser at bootstrap. See postgres-init-configmap.yaml.
+  databaseInitSQL:
+    name: {{ include "psa-moodle.postgres.clusterName" . }}-init-sql
+    key: init.sql
+
   instances:
     - name: instance1
       replicas: {{ .Values.postgres.instances.replicas }}
