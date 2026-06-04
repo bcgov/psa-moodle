@@ -1,151 +1,152 @@
-# PoC deploy runbook — psa-moodle into `a58ce1-dev`
+# PoC deploy runbook — psa-moodle on `a58ce1-dev`
 
-Step-by-step to stand up the single-replica proof-of-concept in the `a58ce1-dev`
-namespace, for a demo ahead of the full dev/test rollout.
+Stand up the single-replica proof-of-concept in `a58ce1-dev` and reach it at
+**https://psa-moodle-dev.apps.silver.devops.gov.bc.ca**.
 
-- **Profile:** `values-poc.yaml` (single replicas, ~7Gi storage, monitoring +
-  add-on backups off). Not the dev/test/prod profile.
-- **Quota:** none required. The `a58ce1` plate is reused from the defunct
-  `learningcurator` project and already carries a raised quota (verified
-  2026-06-03: 1 core CPU request / 16Gi RAM / 64Gi storage / 60 PVCs). The PoC
-  fits; **CPU (1 core long-running cap) is the tightest resource**. The full
-  test/prod-shaped profile still needs an increase — see `poc-quota-request.md`.
-- **Leftover cleanup is optional**, not a blocker — see the appendix.
+This runbook reflects what actually works on BC Gov Silver (verified 2026-06-03).
+Every fix below is already in the chart/config, so a clean `helm install` now
+runs end-to-end with **no manual SQL, config edits, or NetworkPolicy patches**.
 
-All `oc`/`helm` commands assume you're logged in. Nothing here is destructive
-except the optional appendix.
+## Key decisions (and why)
+
+- **Images go to OpenShift's internal registry, not Artifactory.** The reused
+  `a58ce1` plate has no Docker repo on `artifacts.developer.gov.bc.ca` (the
+  defunct project used a legacy registry). We build locally and push to the
+  cluster's built-in registry. No Artifactory repo, no pull secret.
+  *(Request the `a58ce1-tools` Artifactory repo from Platform Services if/when
+  you want the CI pipeline — but it's not needed for this.)*
+- **Quota:** none required. The plate already carries 1 core / 16Gi / 64Gi
+  (see `poc-quota-request.md`); the PoC fits, CPU is the tightest.
+- **Profile:** `values-poc.yaml` — single replicas, internal-registry images,
+  hourly cron (Kyverno), monitoring + add-on backups off, **egress NetworkPolicy
+  off** (see follow-ups).
+
+## Fixes baked into the chart (context for reviewers)
+
+| Problem on Silver | Fix |
+|---|---|
+| arm64 images crash (`exec format error`) | Makefile builds `linux/amd64` |
+| Kyverno blocks fast cron-with-PVC | hourly cron in values-poc |
+| tenants can't create ClusterRoleBinding | gated off (`backup.moodledataSnapshot.clusterRoleBinding`) |
+| nginx `fastcgi_pass php:9000` won't resolve | chart adds a Service named `php` |
+| egress NetworkPolicy kills DNS on OVN | egress off in values-poc |
+| `install_database.php` can't make localcache dir | `/mnt/ramdisk` emptyDir on install + cron pods |
+| PG15 denies CREATE on schema `public` | `databaseInitSQL` grants the moodle role ownership |
+| Moodle "reverse proxy ... accessed directly" (HTTP 500) | `reverseproxy=false` in config.openshift.php |
 
 ---
 
-## A. Pre-flight checks (read-only)
+## A. Pre-flight (read-only)
 
 ```bash
-# 1. Right cluster + namespace
 oc whoami && oc project a58ce1-dev
-
-# 2. Crunchy Postgres operator is available to this namespace.
-#    NOTE: do NOT use `oc get crd ...` — CRDs are cluster-scoped and a namespace
-#    tenant always gets 403 on them. The namespace-safe check is can-i:
-oc auth can-i create postgresclusters.postgres-operator.crunchydata.com -n a58ce1-dev
-#    expect: yes   (the operator runs cluster-wide on Silver; you just need create rights)
-
-# 3. Image pull secret exists in this namespace
-oc get secret artifactory-pull -n a58ce1-dev
+# Crunchy operator available to this namespace (NOT `oc get crd` — that 403s a tenant):
+oc auth can-i create postgresclusters.postgres-operator.crunchydata.com -n a58ce1-dev   # expect: yes
 ```
 
-**Gate:**
-- A.2 `yes` → good. Anything else → email PlatformServicesTeam@gov.bc.ca; the DB
-  can't provision without the operator.
-- A.3 `found` → skip B1. `NotFound` → do B1.
+## B. Build + push images to the internal registry
 
----
-
-## B. One-time prerequisites (only what A flagged)
-
-### B1 — Artifactory pull secret (if A.3 was NotFound)
-Follow `namespace-handover.md` Steps 2–3. You need the `psa-moodle-ci` robot
-account token from [BC Gov Artifactory](https://artifacts.developer.gov.bc.ca)
-(`a58ce1` project → Robot Accounts; `a58ce1-dev` needs **Pull**).
+The Makefile defaults to `linux/amd64`. Bump `VERSION` on every rebuild so nodes
+pull fresh (avoids the mutable-tag stale-image trap).
 
 ```bash
-oc -n a58ce1-dev create secret docker-registry artifactory-pull \
-  --docker-server=artifacts.developer.gov.bc.ca \
-  --docker-username='a58ce1+psa-moodle-ci' \
-  --docker-password='<PASTE-ARTIFACTORY-TOKEN>' \
-  --docker-email='unused@example.com'
+# 1. Build the openshift-variant images (amd64; slow under QEMU on Apple Silicon)
+make build MOODLE_CONFIG_VARIANT=openshift TAG=v0.1.0-poc3
 
-# Helm releases use the default SA; attach the secret to it (chart pods also
-# reference it explicitly, so this is belt-and-suspenders per the handover doc).
-oc -n a58ce1-dev patch serviceaccount default \
-  -p '{"imagePullSecrets":[{"name":"artifactory-pull"}]}'
+# 2. Sanity-check the arch before pushing
+podman inspect localhost/psa-moodle-php:v0.1.0-poc3 --format '{{.Architecture}}'   # must print: amd64
+
+# 3. Log into the cluster's internal registry (uses your oc token)
+podman login -u "$(oc whoami)" -p "$(oc whoami -t)" image-registry.apps.silver.devops.gov.bc.ca
+
+# 4. Tag + push all four images
+REG=image-registry.apps.silver.devops.gov.bc.ca
+for c in php web cron ops; do
+  podman tag localhost/psa-moodle-$c:v0.1.0-poc3 $REG/a58ce1-dev/$c:v0.1.0-poc3
+  podman push $REG/a58ce1-dev/$c:v0.1.0-poc3
+done
+
+# 5. Confirm imagestreams exist with the new tag
+oc get imagestream -n a58ce1-dev   # expect: php, web, cron, ops @ v0.1.0-poc3
 ```
 
-### B2 — Build & push the OpenShift images (if not already in the registry)
-Uses Podman/buildah per the Makefile. Pushes the `openshift` variant of
-php/web/cron/ops under the chosen `VERSION` tag.
+> `values-poc.yaml` pins `image.tag: v0.1.0-poc3`. If you push a different
+> VERSION, either update that line or add `--set image.tag=<VERSION>` in step C.
+
+## C. Install
 
 ```bash
-podman login artifacts.developer.gov.bc.ca
-make push VERSION=v0.1.0-poc1
-```
-> The chart defaults to `image.tag: dev`. You pushed `v0.1.0-poc1`, so step C
-> overrides the tag with `--set image.tag=v0.1.0-poc1`.
-
----
-
-## C. Deploy
-
-### C1 — Server-side dry run (creates nothing; catches RBAC/quota/schema rejects)
-```bash
-helm upgrade --install psa-moodle ./chart/psa-moodle \
+# dry run (validates RBAC/quota/schema — note: does NOT exercise Kyverno)
+helm install psa-moodle ./chart/psa-moodle \
   -f chart/psa-moodle/values.yaml \
   -f chart/psa-moodle/values-poc.yaml \
-  --set image.tag=v0.1.0-poc1 \
-  -n a58ce1-dev \
-  --dry-run=server
-```
-Clean output → proceed.
+  -n a58ce1-dev --dry-run=server
 
-### C2 — Install
-The post-install hook Job runs Moodle's CLI installer and waits for the Crunchy
-primary to accept connections, so first deploy takes several minutes — use a
-long timeout.
-```bash
-helm upgrade --install psa-moodle ./chart/psa-moodle \
+# real install (blocks on the DB-install hook; first run takes a few minutes)
+helm install psa-moodle ./chart/psa-moodle \
   -f chart/psa-moodle/values.yaml \
   -f chart/psa-moodle/values-poc.yaml \
-  --set image.tag=v0.1.0-poc1 \
-  -n a58ce1-dev \
-  --timeout 15m
+  -n a58ce1-dev --timeout 15m
 ```
-> If it times out, **don't re-run blindly** — resources are created and the
-> install Job is likely still finishing. Use section D, then `helm status
-> psa-moodle -n a58ce1-dev`.
 
----
+Watch (second terminal):
+```bash
+oc get postgrescluster,pods -n a58ce1-dev -w | grep -iE 'psa-moodle|NAME'
+```
+Expected: Postgres `Running` → php/valkey/web `Running` → `psa-moodle-install-*`
+`Completed` → `helm install` returns success.
 
-## D. Watch the rollout
+## D. Verify + access
 
 ```bash
-oc get postgrescluster,pods -n a58ce1-dev -w
+# the route should serve HTTP 200 with NO manual fixes this time
+curl -sS -o /dev/null -w "HTTP %{http_code}\n" -L https://psa-moodle-dev.apps.silver.devops.gov.bc.ca/login/index.php
+
+# admin password
+oc get secret psa-moodle-admin -n a58ce1-dev -o jsonpath='{.data.MOODLE_ADMIN_PASS}' | base64 -d; echo
 ```
-Expected order: a `psa-moodle-pg-*` instance pod + pgBackRest repo pod go
-`Running` → `psa-moodle-web-*` / `psa-moodle-php-*` go `Running` → a one-shot
-`psa-moodle-install-*` Job pod runs and reaches `Completed`.
+Browse **https://psa-moodle-dev.apps.silver.devops.gov.bc.ca** → log in as `admin`.
 
 Troubleshooting:
 ```bash
 oc get events -n a58ce1-dev --sort-by=.lastTimestamp | tail -20
-oc logs job/psa-moodle-install -n a58ce1-dev      # install failures
-oc describe pod <stuck-pod> -n a58ce1-dev         # ImagePullBackOff → recheck B1/B2
-#                                                  # Pending + quota event → CPU 1-core cap
+oc logs job/psa-moodle-install -c install -n a58ce1-dev     # DB-install errors
+oc logs deploy/psa-moodle-php -n a58ce1-dev --tail=20       # app errors
 ```
 
 ---
 
-## E. Access (the demo)
+## E. Teardown
+
+The DB-install hook only runs on `helm install`, never `helm upgrade`, and the
+PostgresCluster + its PVCs don't always cascade on uninstall — so tear down
+explicitly:
 
 ```bash
-# Auto-generated admin password
-oc get secret psa-moodle-admin -n a58ce1-dev \
-  -o jsonpath='{.data.MOODLE_ADMIN_PASS}' | base64 -d; echo
-
-# Route host
-oc get route psa-moodle -n a58ce1-dev -o jsonpath='{.spec.host}'; echo
+helm uninstall psa-moodle -n a58ce1-dev
+oc delete postgrescluster psa-moodle-pg -n a58ce1-dev --ignore-not-found
+oc delete job psa-moodle-install -n a58ce1-dev --ignore-not-found
+oc delete pod -n a58ce1-dev -l app.kubernetes.io/instance=psa-moodle --ignore-not-found
+oc delete pvc -n a58ce1-dev -l postgres-operator.crunchydata.com/cluster=psa-moodle-pg --ignore-not-found
+oc delete pvc psa-moodle-moodledata data-psa-moodle-valkey-0 -n a58ce1-dev --ignore-not-found
 ```
-Browse **https://psa-moodle-dev.apps.silver.devops.gov.bc.ca** and log in as
-`admin` with that password.
+Wait until clean (re-run until it prints `CLEAN`):
+```bash
+oc get postgrescluster,pods,pvc -n a58ce1-dev | grep -i psa-moodle || echo CLEAN
+```
+The kept `psa-moodle-admin` Secret survives (resource-policy keep) so the admin
+password is stable across reinstalls. Leave the `learningcurator`/`mysql` PVCs
+alone. Imagestreams persist too — only re-push if the image changed.
 
 ---
 
-## Appendix — optional cleanup of the defunct `learningcurator` remnants
+## Appendix — known follow-ups (not needed for the PoC demo)
 
-Not required for the PoC (plenty of headroom). Frees ~50m CPU and 27Gi storage.
-**Confirm with the PO that this 4-year-old data is disposable before deleting.**
-
-```bash
-oc delete pod learningcurator-sunset-10-b2bx8 -n a58ce1-dev
-oc delete statefulset/mysql -n a58ce1-dev
-oc delete pvc data-mysql-0 data-mysql-1 data-mysql-2 \
-              learningcurator-data learningcurator-mysql-dev -n a58ce1-dev
-```
+- **Egress NetworkPolicy** is OFF for the PoC. The DNS-allow rule never worked
+  on Silver's OVN; re-enabling + fixing egress hardening for dev/test is open.
+- **Cron runs hourly** (Kyverno blocks faster CronJob-with-PVC). For dev/test,
+  convert cron to a long-running Deployment that loops every 60s (Deployments
+  aren't subject to the policy), restoring Moodle's normal cadence.
+- **Artifactory `a58ce1-tools` repo** must be provisioned before the CI pipeline
+  (build.yml/deploy.yml) can push/pull — request from Platform Services.
+- **Monitoring + add-on backups** are off in the PoC; re-enable for dev/test.
