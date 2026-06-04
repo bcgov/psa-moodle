@@ -22,6 +22,11 @@ MOODLE_BRANCH         ?= MOODLE_405_STABLE
 HVP_BRANCH            ?= master
 MOODLE_CONFIG_VARIANT ?= local
 
+# Target platform for built images. BC Gov OpenShift nodes are amd64; building on
+# Apple Silicon defaults to arm64, which fails on-cluster with "exec format error".
+# Override for fast native local-dev builds on Apple Silicon: PLATFORM=linux/arm64
+PLATFORM              ?= linux/amd64
+
 # Image tags (local-only; OpenShift retags via CI)
 TAG ?= dev
 PHP_IMAGE  := localhost/psa-moodle-php:$(TAG)
@@ -51,17 +56,17 @@ prep:
 .PHONY: build build-php build-web build-cron build-ops
 build: build-php build-web build-cron build-ops
 build-php:
-	$(PODMAN) build \
+	$(PODMAN) build --platform=$(PLATFORM) \
 	  --build-arg MOODLE_BRANCH=$(MOODLE_BRANCH) \
 	  --build-arg HVP_BRANCH=$(HVP_BRANCH) \
 	  --build-arg MOODLE_CONFIG_VARIANT=$(MOODLE_CONFIG_VARIANT) \
 	  -f Containerfile.php -t $(PHP_IMAGE) .
 build-web: build-php
-	$(PODMAN) build --build-arg PHP_IMAGE=$(PHP_IMAGE) -f Containerfile.web -t $(WEB_IMAGE) .
+	$(PODMAN) build --platform=$(PLATFORM) --build-arg PHP_IMAGE=$(PHP_IMAGE) -f Containerfile.web -t $(WEB_IMAGE) .
 build-cron: build-php
-	$(PODMAN) build --build-arg PHP_IMAGE=$(PHP_IMAGE) -f Containerfile.cron -t $(CRON_IMAGE) .
+	$(PODMAN) build --platform=$(PLATFORM) --build-arg PHP_IMAGE=$(PHP_IMAGE) -f Containerfile.cron -t $(CRON_IMAGE) .
 build-ops:
-	$(PODMAN) build -f Containerfile.ops -t $(OPS_IMAGE) .
+	$(PODMAN) build --platform=$(PLATFORM) -f Containerfile.ops -t $(OPS_IMAGE) .
 
 ## up: start the compose stack
 .PHONY: up

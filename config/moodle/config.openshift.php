@@ -48,8 +48,12 @@ $CFG->session_redis_serializer_use_igbinary = false;
 $CFG->localcachedir = '/mnt/ramdisk/localcache';
 
 // --- We're behind the OpenShift Router, which terminates TLS. ---
+// sslproxy: TLS is terminated upstream, so treat the connection as HTTPS.
+// reverseproxy MUST be false: the Router forwards the SAME public hostname
+// (wwwroot) to nginx, so Moodle's reverseproxy "direct access" guard
+// (setuplib.php: reverseproxyabused) fires on every request when it's true.
 $CFG->sslproxy    = true;
-$CFG->reverseproxy = true;
+$CFG->reverseproxy = false;
 
 // --- Cron, CLI, paths ---
 $CFG->pathtophp = '/usr/local/bin/php';

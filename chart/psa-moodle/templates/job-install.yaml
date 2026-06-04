@@ -93,7 +93,15 @@ spec:
           volumeMounts:
             - name: moodledata
               mountPath: /var/www/moodledata
+            # config.openshift.php sets $CFG->localcachedir=/mnt/ramdisk/localcache;
+            # without this mount install_database.php fails creating that dir.
+            - name: localcache
+              mountPath: /mnt/ramdisk
       volumes:
         - name: moodledata
           persistentVolumeClaim:
             claimName: {{ include "psa-moodle.fullname" . }}-moodledata
+        - name: localcache
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi

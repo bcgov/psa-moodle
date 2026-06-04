@@ -92,19 +92,30 @@ Save the output. You'll paste it into a GitHub secret in Step 4.
 
 ---
 
-## Step 2 — Artifactory robot account
+## Step 2 — Artifactory credentials (Identity Token)
 
 Images push to `artifacts.developer.gov.bc.ca/a58ce1-tools/psa-moodle/{web,php,cron}:<sha>` and pull from each namespace.
 
-1. Open [BC Gov Artifactory](https://artifacts.developer.gov.bc.ca) → log in with IDIR
-2. Navigate to the `a58ce1` project space → **Robot Accounts** → **Create**
-3. Name: `psa-moodle-ci`
-4. Permissions:
-   - `a58ce1-tools` — `Push` and `Pull` (build push lives in tools)
-   - `a58ce1-dev`, `a58ce1-test` — `Pull` only
-5. Save the generated username (`a58ce1+psa-moodle-ci`) and token
+BC Gov's Artifactory is **JFrog** — the credential you use for `docker`/`podman`
+login (and for the pull Secret) is a JFrog **Identity Token**, not a "robot
+account." Generate one from your own user profile:
 
-Save both for the next step.
+1. Open [BC Gov Artifactory](https://artifacts.developer.gov.bc.ca) → log in with IDIR
+2. Go to your **user profile / settings** (top-right). You do **not** need to
+   navigate to the `a58ce1` project — the token is tied to your account and
+   carries your permissions (as `a58ce1` TO you can pull from `a58ce1-tools`).
+3. Note your **Username** (exact string shown in the profile) — this is the
+   `--docker-username` value below.
+4. Click **Generate an Identity Token**, give it a description (e.g.
+   `psa-moodle pull`), and **copy the token immediately** — it's shown once.
+
+Save the username + token for the next step.
+
+> A personal Identity Token unblocks deploys, but ties image pulls to *your*
+> account. For CI and the permanent dev/test setup, prefer a dedicated
+> service/technical account with `a58ce1-tools` Push and `a58ce1-dev`/`-test`
+> Pull, if the platform provides one. The personal token is the self-serve path
+> that always works.
 
 ---
 
@@ -117,8 +128,8 @@ NS=a58ce1-dev   # then re-run with NS=a58ce1-test
 
 oc -n "$NS" create secret docker-registry artifactory-pull \
   --docker-server=artifacts.developer.gov.bc.ca \
-  --docker-username='a58ce1+psa-moodle-ci' \
-  --docker-password='<PASTE-ARTIFACTORY-TOKEN>' \
+  --docker-username='<YOUR-ARTIFACTORY-USERNAME>' \
+  --docker-password='<PASTE-IDENTITY-TOKEN>' \
   --docker-email='unused@example.com'
 
 oc -n "$NS" patch serviceaccount default \

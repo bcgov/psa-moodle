@@ -238,6 +238,12 @@ backup:
 
   moodledataSnapshot:
     enabled: true
+    # Grant the ops ServiceAccount cluster-scoped read on VolumeSnapshotClass via
+    # a ClusterRoleBinding. OFF by default: BC Gov Silver (and most multi-tenant
+    # clusters) deny namespace users any cluster-scoped RBAC, so rendering this
+    # fails the whole `helm install`. The snapshot script degrades gracefully
+    # without it. Flip true only if a cluster-admin runs the install.
+    clusterRoleBinding: false
     schedule: "0 1 * * *"
     pruneSchedule: "0 4 * * *"
     # VolumeSnapshotClass for the storage class (netapp-file-standard).

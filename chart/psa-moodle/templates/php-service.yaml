@@ -19,3 +19,23 @@ spec:
       targetPort: metrics
       protocol: TCP
     {{- end }}
+---
+# Stable in-namespace alias named "php" for the FPM backend. The nginx config
+# (config/nginx/default.conf) hardcodes `fastcgi_pass php:9000;` — a name that's
+# release/namespace independent — so the chart provides a matching Service here
+# rather than baking the release name into the image. Selects the same php pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: php
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "php") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 4 }}
+  ports:
+    - name: fpm
+      port: {{ .Values.php.service.port }}
+      targetPort: fpm
+      protocol: TCP
