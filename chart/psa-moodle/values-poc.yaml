@@ -48,15 +48,16 @@ cron:
   mode: deployment
   intervalSeconds: 60
 
-# --- Egress NetworkPolicy: OFF for the PoC --------------------------------------
-# Silver's OVN-Kubernetes would not honour the egress DNS allow rule (neither a
-# namespaceSelector for openshift-dns nor port-53-to-anywhere reliably permitted
-# name resolution), so the default-deny-egress silently broke ALL DNS — nginx
-# couldn't find `php`, the installer couldn't find Postgres. Ingress policy stays
-# on. Re-enabling + fixing egress hardening for dev/test is a tracked follow-up.
+# --- Egress NetworkPolicy: ON (fixed 2026-06-04) --------------------------------
+# Previously OFF because default-deny-egress broke ALL DNS on Silver's OVN. Root
+# cause found: the dns-default Service maps 53 -> targetPort 5353 (CoreDNS runs
+# unprivileged) and OVN evaluates egress ACLs after the service DNAT, so a rule
+# allowing only port 53 never matches. The chart's DNS egress rule now allows
+# 5353 too (see templates/networkpolicy.yaml), which resolves it. Verified on an
+# isolated probe pod and on the live php pod.
 networkPolicy:
   egress:
-    enabled: false
+    enabled: true
 
 route:
   host: "psa-moodle-dev.apps.silver.devops.gov.bc.ca"
