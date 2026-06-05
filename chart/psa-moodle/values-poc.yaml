@@ -26,32 +26,38 @@
 image:
   registry: image-registry.openshift-image-registry.svc:5000
   repository: a58ce1-dev
-  tag: v0.1.0-poc3          # amd64 + reverseproxy=false baked in (poc1=arm64, poc2=reverseproxy bug)
+  tag: v0.1.0-poc2          # currently deployed in a58ce1-dev (poc1=arm64).
+                            # poc3 (reverseproxy=false fix) was planned but never
+                            # built/pushed — only poc1/poc2 exist in the registry.
   pullSecret: ""
 
 moodle:
   wwwroot: "https://psa-moodle-dev.apps.silver.devops.gov.bc.ca"
   debug: true
 
-# --- Cron schedule: forced hourly by BC Gov Kyverno policy ---------------------
-# Silver's `cronjobs-with-pvcs/no-fast-cronjob-with-pvc` policy blocks any
-# CronJob that mounts a PVC from running more often than every 60 minutes — and
-# the Moodle cron mounts moodledata. The chart default (*/1) is rejected at
-# admission. Hourly is fine for a demo. PROPER FIX for dev/test/prod: run cron as
-# a long-running Deployment that loops every 60s (Deployments aren't subject to
-# the CronJob policy), restoring Moodle's expected every-minute cadence.
+# --- Cron: long-running Deployment that loops cron.php every 60s ---------------
+# Inherits cron.mode=deployment from values.yaml. This replaced the original
+# hourly CronJob, which Silver's `cronjobs-with-pvcs/no-fast-cronjob-with-pvc`
+# Kyverno policy throttled to 60-min (the Moodle cron mounts the moodledata PVC).
+# The CronJob also failed every tick here — the deployed Job predated the chart's
+# /mnt/ramdisk localcache mount, so cron.php hit "Invalid permissions" creating
+# its localcachedir and exited 1, leaving failed Jobs that fired KubeJobFailed.
+# The Deployment fixes the mount, restores ~minute cadence, and creates no Job
+# objects (so no KubeJobFailed). See cron-deployment.yaml.
 cron:
-  schedule: "0 * * * *"
+  mode: deployment
+  intervalSeconds: 60
 
-# --- Egress NetworkPolicy: OFF for the PoC --------------------------------------
-# Silver's OVN-Kubernetes would not honour the egress DNS allow rule (neither a
-# namespaceSelector for openshift-dns nor port-53-to-anywhere reliably permitted
-# name resolution), so the default-deny-egress silently broke ALL DNS — nginx
-# couldn't find `php`, the installer couldn't find Postgres. Ingress policy stays
-# on. Re-enabling + fixing egress hardening for dev/test is a tracked follow-up.
+# --- Egress NetworkPolicy: ON (fixed 2026-06-04) --------------------------------
+# Previously OFF because default-deny-egress broke ALL DNS on Silver's OVN. Root
+# cause found: the dns-default Service maps 53 -> targetPort 5353 (CoreDNS runs
+# unprivileged) and OVN evaluates egress ACLs after the service DNAT, so a rule
+# allowing only port 53 never matches. The chart's DNS egress rule now allows
+# 5353 too (see templates/networkpolicy.yaml), which resolves it. Verified on an
+# isolated probe pod and on the live php pod.
 networkPolicy:
   egress:
-    enabled: false
+    enabled: true
 
 route:
   host: "psa-moodle-dev.apps.silver.devops.gov.bc.ca"

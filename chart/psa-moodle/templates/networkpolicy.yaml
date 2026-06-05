@@ -132,11 +132,16 @@ spec:
   # No egress rules = deny all egress for matching pods.
 ---
 # DNS egress (mandatory — everything fails without name resolution).
-# NOTE: a namespaceSelector targeting the cluster DNS namespace (openshift-dns
-# or kube-system) proved UNRELIABLE on Silver's OVN-Kubernetes — it did not
-# permit resolution even when the label matched. Allowing port 53 to any
-# destination is the version-independent fix; DNS-to-anywhere is benign, and a
-# per-host restriction is an EgressFirewall concern, not NetworkPolicy.
+#
+# CRITICAL Silver/OVN-Kubernetes gotcha: the cluster DNS Service (dns-default)
+# maps port 53 -> targetPort 5353 (CoreDNS runs unprivileged on 5353). OVN
+# evaluates egress ACLs AFTER the service DNAT, so the real destination port is
+# 5353, NOT 53. An egress rule allowing only port 53 therefore NEVER matches the
+# DNS query and silently breaks ALL resolution — this is why the previously
+# documented fixes (port-53-to-anywhere, and a namespaceSelector to openshift-dns
+# on port 53) both failed on Silver. Allowing 5353 is what actually works;
+# 53 is kept for external/non-DNAT'd resolvers and cross-cluster portability.
+# Verified empirically against an isolated probe pod in a58ce1-dev (2026-06).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -149,10 +154,13 @@ spec:
       {{- include "psa-moodle.selectorLabels" . | nindent 6 }}
   policyTypes: [Egress]
   egress:
-    # No `to:` — matches all destinations, restricted to port 53.
+    # No `to:` — matches all destinations. 5353 is the post-DNAT CoreDNS port on
+    # OpenShift OVN (the dns-default Service's targetPort); 53 covers everything else.
     - ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
+        - { protocol: UDP, port: 5353 }
+        - { protocol: TCP, port: 5353 }
 ---
 # web → php (FastCGI 9000) — egress side.
 apiVersion: networking.k8s.io/v1

@@ -27,6 +27,16 @@ one-person, one-machine dependency.
   `OPENSHIFT_NAMESPACE_TEST`. Until these exist the deploy job skips itself (it
   no longer fails the pipeline); it self-enables once they're set.
 - Point the existing weekly `scheduled-rebuild.yml` at the real registry.
+- **Standardize on one deploy method — `helm upgrade --install` — in `deploy.yml`.**
+  The PoC straddled two paths (`helm install` *and* `helm template | oc apply`);
+  the abandoned `helm install` left the release stuck `failed` (its post-install
+  `job-install` hook hit `BackoffLimitExceeded` on first bring-up) and the
+  manual-apply path then diverged from the release record. Before wiring Helm
+  into CI, make the `psa-moodle-install` post-install hook **idempotent / safe to
+  re-run** (guard it to a fresh DB, e.g. skip if `config.php` / the schema
+  already exists) so an upgrade doesn't re-trigger a failing install. Existing
+  resources keep their `managed-by: Helm` annotations, so `helm upgrade
+  --install` will cleanly *adopt* them.
 - **Outcome:** a `git push` deploys; no laptop in the loop.
 
 ## Priority 2 — Stand up `a58ce1-test`

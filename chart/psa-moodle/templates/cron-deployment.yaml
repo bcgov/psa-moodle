@@ -1,0 +1,99 @@
+{{- /*
+Moodle cron as a long-running Deployment — a single pod that loops cron.php
+every cron.intervalSeconds. This is the default (cron.mode=deployment) and the
+standard for dev/test/prod.
+
+Why a Deployment instead of a CronJob on Silver:
+  * Kyverno's no-fast-cronjob-with-pvc policy throttles any PVC-mounting CronJob
+    to hourly; this loop restores Moodle's expected ~minute task cadence.
+  * A Deployment creates no Job objects, so a failing tick cannot leave a failed
+    Job behind for kube-state-metrics to raise KubeJobFailed on.
+
+Single replica + Recreate so two loops never run concurrently. Within the pod
+the loop is sequential (run, then sleep), so ticks never overlap; Moodle's own
+DB task-locking is a second layer of safety. A failed tick is logged and the
+loop continues — it does not crash the pod (that's what would resurrect the
+alert noise). A heartbeat file + liveness probe still recovers a wedged loop.
+*/ -}}
+{{- if eq .Values.cron.mode "deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-cron
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "cron") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "cron") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "psa-moodle.componentLabels" (list . "cron") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: cron
+          image: {{ include "psa-moodle.image.cron" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -u
+              HEARTBEAT=/mnt/ramdisk/cron-heartbeat
+              echo "[cron-loop] starting; interval=${CRON_INTERVAL}s"
+              while true; do
+                echo "[cron-loop] tick start $(date -u +%FT%TZ)"
+                php /var/www/html/admin/cli/cron.php 2>&1
+                rc=$?
+                echo "[cron-loop] tick end rc=${rc} $(date -u +%FT%TZ)"
+                date -u +%s > "${HEARTBEAT}"
+                sleep "${CRON_INTERVAL}"
+              done
+          env:
+            - name: CRON_INTERVAL
+              value: {{ .Values.cron.intervalSeconds | quote }}
+            {{- include "psa-moodle.appEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.cron.resources | nindent 12 }}
+          livenessProbe:
+            # Restart only if a tick hasn't completed in ~10 min — recovers a
+            # wedged cron.php without false-killing a legitimately long tick.
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - 'test $(( $(date -u +%s) - $(cat /mnt/ramdisk/cron-heartbeat 2>/dev/null || echo 0) )) -lt 600'
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: moodledata
+              mountPath: /var/www/moodledata
+            # $CFG->localcachedir=/mnt/ramdisk/localcache (config.openshift.php)
+            - name: localcache
+              mountPath: /mnt/ramdisk
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+      volumes:
+        - name: moodledata
+          persistentVolumeClaim:
+            claimName: {{ include "psa-moodle.fullname" . }}-moodledata
+        - name: localcache
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
+{{- end }}
