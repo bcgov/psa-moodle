@@ -131,3 +131,52 @@ helm upgrade --install psa-moodle ./chart/psa-moodle \
 > Standardize on `helm upgrade --install` (see `next-steps.md` P1) — and make the
 > `job-install` post-install hook idempotent first, so a re-run on an existing DB
 > doesn't fail the release.
+
+---
+
+## Registry submission text
+
+Quota changes go through the **Platform Product Registry**
+([registry.developer.gov.bc.ca](https://registry.developer.gov.bc.ca/)), not
+email: open the product → **Quotas** section → adjust the CPU/RAM/storage tier
+for the namespace → **Submit edit request** → paste the matching block below into
+the text pop-up (time-bound CPU and snapshot counts scale with the chosen tiers).
+Email (`PlatformServicesTeam@gov.bc.ca`, subject "Quota request") is for
+pre-submission questions only.
+
+**Submit dev and test as two separate edit requests:** dev is small and meets the
+auto-approval bar (utilisation ≥35 %, +1 core), so it clears quickly and unblocks
+monitoring; test is a greenfield HA provision (0 % utilisation, >50 % jump) that
+will get manual Platform Services review — don't let it hold up dev.
+
+### Block A — `a58ce1-dev` (set dev CPU tier → 2 cores; leave RAM/storage)
+
+**1. Why do you need to increase your quota?**
+We need ~1 additional core of CPU request in `a58ce1-dev` so rolling deployments can complete. With monitoring re-enabled, steady-state usage is ~0.9 core against the 1-core quota (~90 %), and a Deployment's rolling update can't schedule its temporary surge pod (php, ~0.2 core) in the remaining headroom. Proposed: raise dev CPU request from 1 → 2 cores (next tier); RAM and storage unchanged. Impact: restores rollout headroom (~45 % steady utilisation) and lets the monitoring exporter sidecars deploy.
+
+**2. Current and desired states of the relevant OpenShift objects**
+Current `a58ce1-dev`: CPU request 900m / 1000m (90 %), memory ~2.7 GiB / 16 GiB, storage 19 GiB / 64 GiB (7 PVCs, netapp-file-standard). Long-running pods: Postgres instance ~400m, php 200m, cron 100m, pgBackRest repo-host 100m, web 50m, valkey 50m. Desired: CPU request quota 2 cores, same workload plus the Postgres + PHP-FPM exporter sidecars (~1m each) and ~0.2 core transient surge headroom. RAM/storage unchanged.
+
+**3. What steps have you taken to fit your application into your current quota?**
+We removed a defunct prior-project workload from the namespace (reclaimed 50m CPU + 15 GiB storage), run dev at single replica, and converted Moodle cron from a CronJob to a request-neutral looping Deployment. php can't drop below 200m without FPM instability under load, and Postgres is already at the Crunchy operator's minimum. The remaining ~100m headroom is still short of one php surge pod, so a single-core increase is the smallest change that unblocks deployments.
+
+### Block B — `a58ce1-test` (set test tiers → CPU 4 / RAM 8 GiB / storage ≥100 GiB)
+
+**1. Why do you need to increase your quota?**
+We're provisioning `a58ce1-test` (currently at namespace default, no workload yet) to run the production-shaped HA topology — 3-replica web/php with autoscaling, a 3-instance Crunchy Postgres cluster, monitoring, and a weekly restore-rehearsal — so multi-pod failure modes are validated before any production step. Proposed: CPU request 0.5 → 4 cores, memory 2 → 8 GiB, storage 1 → ~100 GiB. Impact: stands up the HA test environment; time-bound CPU and snapshot counts scale with these tiers and cover the restore-rehearsal cluster and daily snapshots.
+
+**2. Current and desired states of the relevant OpenShift objects**
+Current: `a58ce1-test` is at the default quota (0.5 core / 2 GiB / 1 GiB) with nothing deployed. Desired, sized to autoscaler maximum:
+
+| Component | Replicas (max) | CPU request | Memory |
+|---|---|---|---|
+| php (+exporter) | 6 | 1.2 core | ~3.1 GiB |
+| postgres instances | 3 | ~1.2 core | ~2.1 GiB |
+| web | 5 | 0.25 core | 0.3 GiB |
+| cron / repo-host / valkey | 1 each | 0.25 core | ~0.8 GiB |
+| **Total (HPA max)** | | **~2.9 core** + surge | **~6.5 GiB** |
+
+→ CPU request 4 cores, memory 8 GiB. Storage ≈ 92 GiB (moodledata 20Gi, Postgres 3×10Gi, pgBackRest repo 20Gi, valkey 2Gi, transient restore-rehearsal ~20Gi) → request ~100 GiB.
+
+**3. What steps have you taken to fit your application into your current quota?**
+We validated the full application on a single-replica PoC in `a58ce1-dev` first rather than over-provisioning test, removed a defunct prior-project workload to free capacity, and use request-neutral patterns (cron as a loop Deployment). The test profile uses the BC Gov HA minimum of 3 replicas and Crunchy's recommended Postgres sizing; going below that would defeat the purpose of a production-shaped test environment. This is a one-time provision of a currently-empty namespace.
