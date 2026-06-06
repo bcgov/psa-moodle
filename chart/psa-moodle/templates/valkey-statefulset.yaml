@@ -37,6 +37,22 @@ spec:
           command:
             - valkey-server
             - /usr/local/etc/valkey/valkey.conf
+            - --requirepass
+            - $(VALKEY_PASSWORD)
+          env:
+            # AUTH password (secret-valkey.yaml). kubelet substitutes
+            # $(VALKEY_PASSWORD) into the command above; REDISCLI_AUTH lets the
+            # readiness probe's `valkey-cli ping` authenticate.
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "psa-moodle.valkey.secretName" . }}
+                  key: VALKEY_PASSWORD
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "psa-moodle.valkey.secretName" . }}
+                  key: VALKEY_PASSWORD
           ports:
             - name: valkey
               containerPort: 6379

@@ -44,6 +44,8 @@ backup:
   # Test is where the restore-rehearsal CronJob actually earns its keep:
   # multi-pod, prod-shaped data, so a deliberately-corrupted backup will
   # trigger the same way it would in prod.
+  # See values.yaml — moodledata snapshots can't run on the RWX/NFS volume; keep
+  # snapshotClass empty. moodledata off-site backup is the tracked prod item.
   moodledataSnapshot:
-    snapshotClass: "netapp-file-standard"
+    snapshotClass: ""
     retentionDays: 14

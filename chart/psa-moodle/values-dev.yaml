@@ -36,7 +36,8 @@ backup:
   # here; values-test.yaml turns it back on where it actually matters.
   restoreRehearsal:
     enabled: false
+  # moodledata snapshots stay disabled (see values.yaml): they can't run on the
+  # RWX/NFS moodledata volume. Do not set snapshotClass to a storage-class name.
   moodledataSnapshot:
-    # Override with your cluster's actual class name once you confirm it.
-    snapshotClass: "netapp-file-standard"
+    snapshotClass: ""
     retentionDays: 7

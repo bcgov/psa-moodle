@@ -147,6 +147,13 @@ Valkey service name.
 {{- end }}
 
 {{/*
+Valkey AUTH secret name (holds VALKEY_PASSWORD). See secret-valkey.yaml.
+*/}}
+{{- define "psa-moodle.valkey.secretName" -}}
+{{- printf "%s-auth" (include "psa-moodle.valkey.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
 Common application env block — used by php Deployment, cron CronJob, and the
 install Job. DB credentials come from Crunchy's pguser Secret; we never
 duplicate them in our own Secret.
@@ -181,6 +188,11 @@ duplicate them in our own Secret.
   value: {{ include "psa-moodle.valkey.serviceName" . | quote }}
 - name: CACHE_PORT
   value: "6379"
+- name: CACHE_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "psa-moodle.valkey.secretName" . }}
+      key: VALKEY_PASSWORD
 - name: MOODLE_WWWROOT
   value: {{ required "moodle.wwwroot is required (set in values-<env>.yaml)" .Values.moodle.wwwroot | quote }}
 - name: MOODLE_BEHIND_PROXY

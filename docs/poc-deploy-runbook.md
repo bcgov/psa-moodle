@@ -18,18 +18,19 @@ runs end-to-end with **no manual SQL, config edits, or NetworkPolicy patches**.
 - **Quota:** none required. The plate already carries 1 core / 16Gi / 64Gi
   (see `poc-quota-request.md`); the PoC fits, CPU is the tightest.
 - **Profile:** `values-poc.yaml` — single replicas, internal-registry images,
-  hourly cron (Kyverno), monitoring + add-on backups off, **egress NetworkPolicy
-  off** (see follow-ups).
+  monitoring + add-on backups off (demo only). Cron now runs as a 60s loop
+  Deployment and the **egress NetworkPolicy is ON** — both fixed since the
+  original PoC (see `next-steps.md` → "Done").
 
 ## Fixes baked into the chart (context for reviewers)
 
 | Problem on Silver | Fix |
 |---|---|
 | arm64 images crash (`exec format error`) | Makefile builds `linux/amd64` |
-| Kyverno blocks fast cron-with-PVC | hourly cron in values-poc |
+| Kyverno blocks fast cron-with-PVC | cron is a 60s loop Deployment (not a CronJob) |
 | tenants can't create ClusterRoleBinding | gated off (`backup.moodledataSnapshot.clusterRoleBinding`) |
 | nginx `fastcgi_pass php:9000` won't resolve | chart adds a Service named `php` |
-| egress NetworkPolicy kills DNS on OVN | egress off in values-poc |
+| egress NetworkPolicy kills DNS on OVN | DNS egress allows port 5353 (OVN DNAT); egress ON |
 | `install_database.php` can't make localcache dir | `/mnt/ramdisk` emptyDir on install + cron pods |
 | PG15 denies CREATE on schema `public` | `databaseInitSQL` grants the moodle role ownership |
 | Moodle "reverse proxy ... accessed directly" (HTTP 500) | `reverseproxy=false` in config.openshift.php |
@@ -142,11 +143,12 @@ alone. Imagestreams persist too — only re-push if the image changed.
 
 ## Appendix — known follow-ups (not needed for the PoC demo)
 
-- **Egress NetworkPolicy** is OFF for the PoC. The DNS-allow rule never worked
-  on Silver's OVN; re-enabling + fixing egress hardening for dev/test is open.
-- **Cron runs hourly** (Kyverno blocks faster CronJob-with-PVC). For dev/test,
-  convert cron to a long-running Deployment that loops every 60s (Deployments
-  aren't subject to the policy), restoring Moodle's normal cadence.
+- ~~**Egress NetworkPolicy** is OFF~~ — **DONE.** Root-caused (Silver's OVN
+  evaluates egress ACLs after the DNS service DNAT 53→5353) and re-enabled; on in
+  the PoC profile and by default.
+- ~~**Cron runs hourly**~~ — **DONE.** Converted to a long-running Deployment that
+  loops `cron.php` every 60s (Deployments aren't subject to the Kyverno PVC-cron
+  policy), restoring Moodle's normal cadence.
 - **Artifactory `a58ce1-tools` repo** must be provisioned before the CI pipeline
   (build.yml/deploy.yml) can push/pull — request from Platform Services.
 - **Monitoring + add-on backups** are off in the PoC; re-enable for dev/test.

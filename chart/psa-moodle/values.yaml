@@ -93,7 +93,11 @@ valkey:
   persistence:
     enabled: true
     size: 2Gi
-    storageClassName: ""     # uses cluster default block storage when empty
+    # Left on the namespace default (netapp-file-standard, NFS). Valkey is an
+    # RDB-only cache, so file is fine. Do NOT pin block here: a StatefulSet's
+    # volumeClaimTemplate is IMMUTABLE, so changing the class would break
+    # `helm upgrade` on the live release (unlike Postgres, which is an operator CR).
+    storageClassName: ""
   maxmemory: 256mb
 
 # --- Postgres (Crunchy Postgres for Kubernetes) --------------------------------
@@ -105,7 +109,13 @@ postgres:
   instances:
     replicas: 3              # 1 primary + 2 hot standbys (BC Gov min for HA DB)
     storage: 10Gi
-    storageClassName: ""     # cluster default block storage
+    # DB datafiles on BC Gov BLOCK storage (postgres-how-to: block, not NFS, for
+    # Postgres). Confirmed: `netapp-block-standard` exists with the full 64Gi
+    # quota free in a58ce1-dev. Was "" -> namespace default = netapp-file-standard
+    # (NFS), where the live DB datafiles currently (wrongly) sit. storageClassName
+    # is IMMUTABLE on an existing PVC, so this takes effect on a FRESH deploy; the
+    # live dev DB must be backup+restored to migrate. See bcgov-alignment-review M5.
+    storageClassName: netapp-block-standard
     resources:
       requests: { cpu: 250m, memory: 512Mi }
       limits:   { memory: 2Gi }
@@ -113,7 +123,10 @@ postgres:
   pgbackrest:
     image: ""
     repoStorage: 20Gi
-    repoStorageClassName: "" # cluster default block storage
+    # Backup repo on block for dev/test. NOTE: block is NOT OCIO-backed — the
+    # off-site copy (netapp-file-backup, quota already present in a58ce1-dev: 32Gi
+    # free, or S3) is the prod-cutover item. See bcgov-alignment-review M6/M7.
+    repoStorageClassName: netapp-block-standard
     # Retention: N full backups before old ones are pruned.
     retentionFull: 7
     # Schedules (cron): full once a day, incrementals hourly.
@@ -248,19 +261,22 @@ backup:
       limits:   { memory: 512Mi }
 
   moodledataSnapshot:
-    enabled: true
-    # Grant the ops ServiceAccount cluster-scoped read on VolumeSnapshotClass via
-    # a ClusterRoleBinding. OFF by default: BC Gov Silver (and most multi-tenant
-    # clusters) deny namespace users any cluster-scoped RBAC, so rendering this
-    # fails the whole `helm install`. The snapshot script degrades gracefully
-    # without it. Flip true only if a cluster-admin runs the install.
+    # DISABLED by design (was enabled: true, which fired a daily "SKIPPED" warning
+    # email). moodledata MUST be RWX, which on BC Gov is the netapp-file-standard
+    # (NFS) class, and the platform guidance is that VolumeSnapshots are block-only
+    # and "NOT the off-site backup of record" (platform-storage.md). The chart also
+    # pointed snapshotClass at "netapp-file-standard" — a STORAGE-class name, not a
+    # VolumeSnapshotClass (the cluster's only VSC is named "netapp") — so it could
+    # never match and no-op'd daily. Real moodledata protection is an off-site
+    # rsync/tar to a netapp-file-backup PVC (quota already present in a58ce1-dev:
+    # 32Gi free) or S3 — tracked in docs/next-steps.md + bcgov-alignment-review
+    # M7/M8. The DB itself IS backed up (pgBackRest). Leave this off.
+    enabled: false
     clusterRoleBinding: false
     schedule: "0 1 * * *"
     pruneSchedule: "0 4 * * *"
-    # VolumeSnapshotClass for the storage class (netapp-file-standard).
-    # If your cluster's class is named differently, override here. If snapshots
-    # are not supported on the class, leave empty — the CronJob logs + emails
-    # a warning and is a no-op.
+    # Keep empty. Do NOT set a storage-class name here (see above). Only a BLOCK
+    # PVC could be snapshotted, and moodledata can't be block (it's RWX).
     snapshotClass: ""
     retentionDays: 14
     resources:
