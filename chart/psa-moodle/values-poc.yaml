@@ -26,9 +26,11 @@
 image:
   registry: image-registry.openshift-image-registry.svc:5000
   repository: a58ce1-dev
-  tag: v0.1.0-poc2          # currently deployed in a58ce1-dev (poc1=arm64).
-                            # poc3 (reverseproxy=false fix) was planned but never
-                            # built/pushed — only poc1/poc2 exist in the registry.
+  tag: v0.1.0-poc5          # deployed in a58ce1-dev 2026-06-06. poc5 is the first
+                            # image with $CFG->reverseproxy=false (the fix committed
+                            # in b02a51c but never built into poc1/poc2 — poc2 had
+                            # reverseproxy=true and 500'd every page). poc5 also
+                            # carries the nginx real-client-IP log config. poc1=arm64.
   pullSecret: ""
 
 moodle:
