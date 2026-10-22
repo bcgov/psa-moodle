@@ -57,6 +57,9 @@ RUN find ${MOODLE_SRC} -name '.git' -type d -prune -exec rm -rf {} + \
 # =============================================================================
 FROM php:8.3-fpm-bookworm
 
+# Keep automatic patch updates, but reject bases predating the October 2026 RCE fixes.
+RUN php -r 'if (PHP_VERSION_ID < 80336 || PHP_VERSION_ID >= 80400) { fwrite(STDERR, "PHP 8.3.36 or later in the 8.3 series is required for CVE-2026-109618 / CVE-2026-109619.\n"); exit(1); }'
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # OS deps for the PHP extensions we install below.
