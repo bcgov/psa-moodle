@@ -65,7 +65,7 @@ Browse to <http://localhost:8080> — admin / `Admin-1234!`.
 ```
 psa-moodle/
 ├── compose.yaml              # Podman compose stack (db, cache, php, web, cron)
-├── Containerfile.php         # PHP-FPM 8.3 + Moodle source-of-truth
+├── Containerfile.php         # PHP-FPM 8.3.36 + Moodle source-of-truth
 ├── Containerfile.web         # nginx-unprivileged, code copied from php image
 ├── Containerfile.cron        # php-cli, code copied from php image
 ├── Makefile                  # canonical dev entrypoints
@@ -79,6 +79,51 @@ psa-moodle/
 ├── moodledata/               # GITIGNORED — local bind mount for Moodle's data dir
 └── docs/                     # phase 0 deliverables
 ```
+
+### PHP security updates
+
+Both PHP-FPM and the CLI cron image are pinned to **PHP 8.3.36**, released on
+**October 21, 2026**, to address PHP2Shell (CVE-2026-109618 and CVE-2026-109619).
+See the [PHP security advisory](https://www.php.net/index.php) and
+[8.3.36 release announcement](https://www.php.net/releases/8_3_36.php).
+PHP 8.3 is the newest branch supported by this project's Moodle 4.5 release;
+see [Moodle's PHP compatibility policy](https://moodledev.io/general/development/policies/php).
+
+Update the version pins in `Containerfile.php` and `Containerfile.cron` together
+for subsequent releases. Weekly rebuilds refresh the pinned images but do not
+advance these PHP version pins. Rebuild all application images and recreate the
+local containers to apply an update:
+
+```sh
+make build
+podman compose up -d --force-recreate php web cron
+podman compose exec -T php php -v
+podman compose exec -T cron php -v
+```
+
+For OpenShift, build and publish a new image tag through the existing CI/CD
+pipeline, deploy that tag, and verify PHP versions in both the PHP workload and
+cron workload. Updating these files alone does not patch running containers.
+
+For an urgent runtime-only update, `Containerfile.runtime-patch` can retain the
+deployed application's files, including its environment-specific `config.php`.
+Build the normal PHP and cron images first, then build a patch image for each:
+
+```sh
+podman build --platform=linux/amd64 \
+  --build-arg DEPLOYED_IMAGE="$DEPLOYED_PHP_IMAGE" \
+  --build-arg RUNTIME_IMAGE="$UPDATED_RUNTIME_IMAGE" \
+  -f Containerfile.runtime-patch \
+  -t "$PATCH_IMAGE" .
+```
+
+Use the deployed PHP image's digest for `DEPLOYED_PHP_IMAGE`. Set
+`UPDATED_RUNTIME_IMAGE` to the newly built PHP or cron image, respectively, and
+give each resulting `PATCH_IMAGE` a new release tag. The web image can retain its
+existing contents because the Moodle source is unchanged. Verify application
+file hashes, PHP versions, required extensions, and native FPM startup before
+rolling out the patch. This path does not advance Moodle or require a Moodle
+database upgrade.
 
 ### Plugin set (built into the image)
 

@@ -26,11 +26,9 @@
 image:
   registry: image-registry.openshift-image-registry.svc:5000
   repository: a58ce1-dev
-  tag: v0.1.0-poc5          # deployed in a58ce1-dev 2026-06-06. poc5 is the first
-                            # image with $CFG->reverseproxy=false (the fix committed
-                            # in b02a51c but never built into poc1/poc2 — poc2 had
-                            # reverseproxy=true and 500'd every page). poc5 also
-                            # carries the nginx real-client-IP log config. poc1=arm64.
+  # PHP 8.3.36 security patch; preserves poc5 Moodle code/config and web contents.
+  # Built with Containerfile.runtime-patch on 2026-10-21.
+  tag: php-8.3.36-poc5-20261021
   pullSecret: ""
 
 moodle:

@@ -53,9 +53,11 @@ RUN find ${MOODLE_SRC} -name '.git' -type d -prune -exec rm -rf {} + \
  && find ${MOODLE_SRC} -name '.DS_Store' -delete
 
 # =============================================================================
-# Stage 2 — runtime: php-fpm 8.3 with Moodle's required extensions.
+# Stage 2 — runtime: php-fpm 8.3.36 with Moodle's required extensions.
 # =============================================================================
-FROM php:8.3-fpm-bookworm
+# 2026-10-21 security release fixes CVE-2026-109618 and CVE-2026-109619.
+# Keep in sync with Containerfile.cron; Moodle 4.5 supports PHP through 8.3.
+FROM docker.io/library/php:8.3.36-fpm-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 

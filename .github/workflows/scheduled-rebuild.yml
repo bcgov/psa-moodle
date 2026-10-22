@@ -2,10 +2,13 @@
 #
 # Every Saturday at 03:00 UTC, re-runs the build + deploy pipeline against main
 # to pick up upstream changes that don't trigger a code push:
-#   - PHP base image security patches (php:8.3-fpm-bookworm)
+#   - Base image updates within the pinned PHP release (8.3.36)
 #   - Moodle point-release fixes on the MOODLE_405_STABLE branch
 #   - OS package updates in the Debian layer
 #   - Plugin updates on their respective main branches
+#
+# PHP point releases are pinned in Containerfile.php and Containerfile.cron.
+# Update both pins explicitly when a new PHP security release is published.
 #
 # Uses workflow_dispatch to trigger build.yml so the full lint → build → push →
 # deploy chain runs identically to a normal merge.

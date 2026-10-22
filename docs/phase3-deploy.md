@@ -6,6 +6,44 @@ The objective: prove the new architecture works end-to-end on cluster (Galera re
 
 ---
 
+## Runtime security update — 2026-10-21
+
+The existing `a58ce1-dev` workloads were updated from PHP 8.3.31 to PHP 8.3.36
+using release tag `php-8.3.36-poc5-20261021` in the internal OpenShift registry.
+The deployed Moodle 4.5.11+ application and its OpenShift configuration were
+retained using `Containerfile.runtime-patch`; no database upgrade was performed.
+The web image was given the new release tag without changing its contents.
+
+The application source was taken from:
+
+```text
+image-registry.apps.silver.devops.gov.bc.ca/a58ce1-dev/php@sha256:0ca9a2dcc904ad2251372fffb80bb76636d90efc9749f8b8950f85947aaa035d
+```
+
+Published image digests:
+
+| Image | SHA-256 digest |
+|---|---|
+| `php` | `ce132751b83f9d07e7079cae34217b635300976c9ef24ea3740b7b6694aa871e` |
+| `cron` | `487c6ccfd04bc8587f685688bea42707dcfcef4d86de371cda8314d9cc67975c` |
+| `web` | `cfcbeac0b51c3488c0cebdc277974a7b3ba7d885503a99c0ca910efddfedc5e7` |
+
+All 29,598 application files had identical contents in the original and both
+patched images. The aggregate SHA-256 of sorted relative filenames and their
+content hashes was `2336835604b4ecb19b906c30a0ac275a4d6af38458a0a6f65997a4ff68aac467`.
+
+Validation passed on a native AMD64 cluster node: PHP 8.3.36, all required PHP
+extensions, and `php-fpm -t`. After rollout, all three Deployments were available,
+both live runtimes reported PHP 8.3.36, FPM passed its healthcheck, and the public
+Moodle login page rendered successfully.
+
+Although the workloads carry Helm metadata, no Helm release record was present
+in the namespace. The rollout used `oc set image` on the three existing
+Deployments, preserving their current settings, including the `Recreate`
+strategy on PHP and cron. `values-poc.yaml` records the matching release tag.
+The previous `v0.1.0-poc5` images remain available for emergency rollback, but
+contain vulnerable PHP and must not be treated as a secure long-term fallback.
+
 ## Prerequisites
 
 - `oc` and `helm` (v3.13+) installed locally

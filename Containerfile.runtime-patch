@@ -1,0 +1,19 @@
+# Patch a PHP runtime while preserving the deployed Moodle code and config.
+# RUNTIME_IMAGE is a freshly built psa-moodle PHP or cron image.
+# DEPLOYED_IMAGE is the existing psa-moodle PHP image, preferably by digest.
+# The runtime's PHP configuration, extensions, entrypoint, and CMD are inherited.
+
+ARG DEPLOYED_IMAGE
+ARG RUNTIME_IMAGE
+
+FROM ${DEPLOYED_IMAGE} AS deployed
+FROM ${RUNTIME_IMAGE}
+
+USER root
+# Remove the newer application tree before copying the deployed version so
+# files introduced by a newer Moodle/plugin release cannot remain behind.
+RUN rm -rf /var/www/html
+COPY --from=deployed --chown=www-data:0 /var/www/html /var/www/html
+RUN chmod -R g+rwX /var/www/html
+
+USER www-data
