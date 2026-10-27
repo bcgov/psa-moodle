@@ -19,3 +19,6 @@ themes/
 
 # Build artefacts
 *.log
+
+# Local quota evidence exports; share reviewed attachments with Platform Services.
+artifacts/quota-evidence/

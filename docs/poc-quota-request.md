@@ -1,5 +1,9 @@
 # PoC quota request — a58ce1 dev namespace
 
+> Historical reference for the reused `a58ce1` proof of concept. For the new
+> license plate, use [Initial quota request](quota-request.md), prepared
+> 2026-10-22. The figures below are not the new project-set request.
+
 Paste-ready figures for the **Quotas** section of the
 [Platform Product Registry](https://registry.developer.gov.bc.ca/) (`a58ce1`
 product, **`dev`** namespace only). This covers the single-replica
@@ -10,8 +14,10 @@ default namespace quota is 0.5 core CPU / 2 GiB RAM / **1 GiB storage**, and
 1 GiB of storage cannot hold Postgres + moodledata + a backup repo. This is the
 *smallest* bump that runs a working Moodle.
 
-> Decreases auto-approve. CPU/RAM auto-approve above 35% sustained utilisation.
-> Storage needs only a PVC list — Sysdig is *not mandatory*
+> Automatic approval depends on all applicable utilization and adjustment-size
+> conditions, not just a 35% threshold. A new project set has no utilization
+> history; the current request therefore seeks review of its initial capacity
+> plan. Sysdig is not the only accepted way to provide resource evidence
 > ([quota-adjustment docs](https://developer.gov.bc.ca/docs/default/component/platform-developer-docs/docs/automation-and-resiliency/request-quota-adjustment-for-openshift-project-set/)).
 
 ## What to request (dev namespace)

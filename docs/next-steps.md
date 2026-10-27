@@ -1,5 +1,11 @@
 # Next steps — psa-moodle after the PoC
 
+> **Planning update, 2026-10-22:** the full deployment will start on a newly
+> requested license plate rather than reuse `a58ce1`. See the
+> [initial quota request](quota-request.md) for the proposed matching dev/test/prod
+> capacity and implementation prerequisites. The namespace-specific steps below
+> describe the earlier `a58ce1` plan and must be adapted to the new project set.
+
 The PoC proved the architecture works on BC Gov Silver: Moodle 4.5 on Crunchy
 Postgres is **deployed and live** in `a58ce1-dev` at
 <https://psa-moodle-dev.apps.silver.devops.gov.bc.ca/>. Since then the chart has been

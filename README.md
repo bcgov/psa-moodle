@@ -1,98 +1,153 @@
-# psa-moodle
+# PSA Moodle
 
-PSA Moodle on BC Gov Private Cloud (OpenShift Silver, license plate `a58ce1`).
+A replacement deployment of PSA Moodle for the BC Gov Private Cloud on
+OpenShift Silver. This repository contains the container builds, local Podman
+stack, Helm chart, deployment workflows, and operational scripts for the new
+platform.
 
-A from-scratch re-platform of `bcgov/moodle-nginx`, deliberately removing the three architectural choices flagged in the [April 2026 assessment](../moodle-openshift-architecture-assessment-2026-04-12.md):
+The application uses Moodle 4.5 with PostgreSQL, Valkey, nginx, and PHP-FPM.
+Moodle, its plugins, and the PSA theme are packaged into container images;
+shared storage holds Moodle data rather than application code. The design
+replaces the legacy `bcgov/moodle-nginx` deployment's MariaDB Galera database,
+shared application-code volume, and custom Redis proxy arrangement.
 
-- ❌ MariaDB Galera multi-master &nbsp;→&nbsp; ✅ Crunchy Postgres for Kubernetes
-- ❌ Shared RWX application code &nbsp;→&nbsp; ✅ immutable images, code baked in
-- ❌ Custom Redis Sentinel proxy &nbsp;→&nbsp; ✅ Valkey (Linux Foundation Redis fork)
+## Current direction
 
-Production cutover is **out of scope** for the current iteration — we are building dev/test in `a58ce1-dev` and `a58ce1-test` first.
+**The next step is to request a new Silver project set.** The `a58ce1` license
+plate hosts the proof of concept; it is not the destination for the full
+replacement. The new license plate has not yet been assigned.
 
----
+| Project set | Role |
+|---|---|
+| `950003` | Existing Moodle deployment |
+| `a58ce1` | Replacement proof of concept, deployed in `a58ce1-dev` |
+| New license plate, pending | Intended home for the replacement's dev, test, prod, and tools namespaces |
 
-## Status
+Register the new project set first, then use the
+[quota request](docs/quota-request.md) for the capacity adjustment. It contains
+proposed totals, form responses, and allocation calculations. The accompanying
+[evidence report](docs/quota-evidence.md) adds fresh inventories and fourteen days
+of production and prototype metrics collected on 2026-10-26. The totals below
+remain provisional pending agreement on the deployment and recovery scope.
 
-| Phase | Description | State |
-|---|---|---|
-| 0 | Namespace handover docs + discovery template | ✅ done — see [`docs/namespace-handover.md`](docs/namespace-handover.md) and [`docs/discovery-inventory.md`](docs/discovery-inventory.md) |
-| 1 | Local Podman development environment | ✅ this README |
-| 2 | Container images + Artifactory registry | ✅ done — see [`docs/phase2-images.md`](docs/phase2-images.md) (`make push`, `make smoke-registry`) |
-| 3 | Helm chart + first OpenShift deploy | ✅ done — see [`docs/phase3-deploy.md`](docs/phase3-deploy.md); chart at `chart/psa-moodle/` |
-| 4 | Operational hardening (PDB, HPA, topology spread, egress NetPol) | ✅ done — see [`docs/phase4-hardening.md`](docs/phase4-hardening.md); route timeout was already raised in Phase 3 |
-| 5 | CI/CD (GitHub Actions → Helm) | ✅ done — see [`docs/phase5-cicd.md`](docs/phase5-cicd.md) |
-| 6 | Backups, DR, backup-integrity fix (Warren's April incident) | ✅ done — see [`docs/phase6-backups.md`](docs/phase6-backups.md) |
-| 7 | Data migration rehearsal (greenfield → realistic) | pending |
-| 8 | Production go-live | gated — separate approval |
+| Namespace | Requested CPU (cores) | Requested memory (GiB) | Requested storage (GiB) |
+|---|---:|---:|---:|
+| Development | 6 | 32 | 256 |
+| Test | 6 | 32 | 256 |
+| Production | 6 | 32 | 256 |
+| Tools | 0.5 | 2 | 1 |
 
----
+These are proposed initial totals, with CPU and memory budgeted as pod requests.
+Matching dev/test/prod ceilings allow the same topology, scaling, rollout, and
+recovery exercises in each environment. They are not measured production
+requirements, and some of the budgeted components still need implementation.
+
+**Production cutover remains a separate, later decision.** Provisioning a new
+project set does not mean the replacement is ready to take production traffic.
+
+## What is implemented, and what remains
+
+The proof of concept demonstrates Moodle running on Crunchy PostgreSQL in
+Silver. The repository also contains multi-replica chart settings, network
+policies, monitoring, autoscaling, and backup verification tooling. Those files
+are not evidence that every feature has been deployed or validated.
+
+| Area | Current implementation and remaining work |
+|---|---|
+| Application | Images include Moodle, five plugins, and the PSA theme. Plugin behaviour, SSO, and representative course workflows still need validation. |
+| Database | Crunchy PostgreSQL with pgBackRest. The chart supports three instances; the PoC uses one. Migration from the existing database, sizing, and failover need rehearsal. |
+| Sessions and cache | Authenticated Valkey in OpenShift, currently a single replica. HA and session survival during failover remain to be implemented and tested. |
+| Moodle tasks | A single long-running cron Deployment loops `cron.php` with a 60-second interval. The chart retains a CronJob option. |
+| Backup and recovery | Database backup configuration and integrity/restore jobs exist. Moodle file backups, a secondary database backup destination, and a complete recovery drill remain outstanding. Moodle data snapshots are disabled. |
+| Monitoring | Exporters, monitoring resources, and alert rules are in the chart; monitoring is disabled in the PoC profile. Alert routing and operational validation remain. |
+| Delivery | GitHub Actions workflows exist for builds, deployment, and scheduled rebuilds. Registry provisioning and deployment credentials are outstanding in the recorded plan. There is no production values file or production deployment workflow path. |
+
+The [quota request](docs/quota-request.md) defines the new environment's planning
+assumptions and implementation boundaries. The [next steps](docs/next-steps.md)
+and [platform alignment review](docs/bcgov-alignment-review.md) provide further
+operational context; their older namespace-specific instructions need adapting
+to the new project set.
+
+## Preparing the new project set
+
+The current configuration still contains `a58ce1` registry paths, namespace
+examples, and PoC route names. The existing dev profile also uses fewer replicas
+than test, so it does not yet implement the new plan for matching HA topology.
+
+Once the new license plate is assigned:
+
+1. Confirm the provisioned quotas, storage-class allowances, and operator access
+   against the [initial quota request](docs/quota-request.md).
+2. Configure the image registry and build credentials for the new project.
+   Update registry paths in the Makefile, chart values, Compose registry
+   overrides, and GitHub Actions workflows.
+3. Prepare environment values, routes, SSO clients, alert recipients, and
+   deployment secrets for the new namespaces. Reconcile the existing dev/test
+   profiles with the proposed topology and resource budget.
+4. Validate a clean installation, then exercise scaling, failover, backups, and
+   complete recovery with representative data before planning cutover.
+
+The [PoC deploy runbook](docs/poc-deploy-runbook.md) records how the demonstration
+was deployed. Treat its internal-registry settings and `a58ce1-dev` commands as
+PoC-specific instructions, not as the new environment's deployment defaults.
 
 ## Local development
 
-### Prerequisites
+Use GNU Make and a running Podman installation with `podman compose` available.
+Builds need network access to fetch base images, Moodle, plugins, and the theme.
+If using standalone `podman-compose`, pass `COMPOSE=podman-compose` to Make.
 
-- **Podman** ≥ 4.x with `podman compose` available, OR `podman-compose` installed separately. (Docker also works if you alias the commands, but Podman is the supported path here.)
-- ~3 GB free disk for images + DB volume.
-
-### First-time setup
+From the repository root:
 
 ```sh
-make build          # builds psa-moodle-php (clones plugins + theme from GitHub), then web and cron
-make up             # starts db (Postgres 15), cache (Valkey 7.2), php, web, cron
-make install        # one-time: runs Moodle CLI installer against the running DB
+make build
+make up
+make ps
+
+# Once the database and PHP service are healthy, initialize a fresh database.
+make install
 ```
 
-Browse to <http://localhost:8080> — admin / `Admin-1234!`.
+Open <http://localhost:8080>. The default local login is `admin` with password
+`Admin-1234!`; these are development credentials. The installer accepts
+`ADMIN_USER`, `ADMIN_PASS`, and `ADMIN_EMAIL` overrides.
 
-### Day-to-day
+Builds default to `linux/amd64` to match OpenShift. For native local builds on
+Apple Silicon, use `make build PLATFORM=linux/arm64`.
+
+The local stack runs PostgreSQL 15, Valkey 7.2, PHP-FPM, nginx, and the cron
+runner. Database and Valkey volumes persist between runs; Moodle files live in
+the ignored `moodledata/` bind mount.
 
 | Command | Purpose |
 |---|---|
-| `make up` | start the stack |
-| `make down` | stop, keep volumes (DB + moodledata persist) |
-| `make logs` | tail all service logs |
-| `make ps` | list services and health |
-| `make psql` | open a `psql` shell on the local Postgres |
-| `make valkey` | open `valkey-cli` against the cache |
-| `make shell-php` | bash into the php container |
-| `make purge-cache` | run Moodle's CLI cache purge |
-| `make upgrade` | run Moodle's CLI upgrade (after rebuilding the image) |
-| `make clean` | **destructive** — `down -v` and delete `moodledata/` |
+| `make help` | List available targets |
+| `make up` / `make down` | Start or stop the stack while retaining data |
+| `make logs` / `make ps` | Inspect logs or service state |
+| `make shell-php` | Open a shell in the PHP container |
+| `make psql` / `make valkey` | Open the local database or cache CLI |
+| `make purge-cache` | Purge Moodle caches |
+| `make upgrade` | Run Moodle's CLI database upgrade after updating the application images |
+| `make chart-check` | Lint and render the dev/test Helm profiles locally; requires Helm |
+| `make clean` | **Delete local database/cache volumes and `moodledata/`** |
 
-### What lives where
+## Images and application updates
 
-```
-psa-moodle/
-├── compose.yaml              # Podman compose stack (db, cache, php, web, cron)
-├── Containerfile.php         # PHP-FPM 8.3.36 + Moodle source-of-truth
-├── Containerfile.web         # nginx-unprivileged, code copied from php image
-├── Containerfile.cron        # php-cli, code copied from php image
-├── Makefile                  # canonical dev entrypoints
-├── config/
-│   ├── moodle/
-│   │   ├── config.local.php       # baked into image when MOODLE_CONFIG_VARIANT=local
-│   │   └── config.openshift.php   # baked when MOODLE_CONFIG_VARIANT=openshift
-│   ├── nginx/default.conf
-│   ├── php/{php.ini,php-fpm.conf}
-│   └── valkey/valkey.conf
-├── moodledata/               # GITIGNORED — local bind mount for Moodle's data dir
-└── docs/                     # phase 0 deliverables
-```
+[Containerfile.php](Containerfile.php) fetches Moodle from `MOODLE_405_STABLE`
+and assembles the application tree. The web and cron builds copy that tree so
+all three images share the same application code. The build includes
+`block_course_search`, `local_githubsync`, `local_psaelmsync`, `mod_pathcurator`,
+`mod_hvp`, and `theme_bcgovpsa`.
 
-### PHP security updates
+Local and OpenShift builds use separate configuration variants under
+[config/moodle](config/moodle/). Use `MOODLE_CONFIG_VARIANT=openshift` for cluster
+images. Normal builds fetch upstream branches, so rebuilding may also change
+Moodle, plugin, or theme code.
 
-Both PHP-FPM and the CLI cron image are pinned to **PHP 8.3.36**, released on
-**October 21, 2026**, to address PHP2Shell (CVE-2026-109618 and CVE-2026-109619).
-See the [PHP security advisory](https://www.php.net/index.php) and
-[8.3.36 release announcement](https://www.php.net/releases/8_3_36.php).
-PHP 8.3 is the newest branch supported by this project's Moodle 4.5 release;
-see [Moodle's PHP compatibility policy](https://moodledev.io/general/development/policies/php).
-
-Update the version pins in `Containerfile.php` and `Containerfile.cron` together
-for subsequent releases. Weekly rebuilds refresh the pinned images but do not
-advance these PHP version pins. Rebuild all application images and recreate the
-local containers to apply an update:
+The PHP-FPM and cron Containerfiles currently pin PHP to `8.3.36`. Update both
+pins together when changing the runtime. A rebuild does not advance an explicit
+version pin, and changing a Containerfile does not update running containers.
+For local updates:
 
 ```sh
 make build
@@ -101,81 +156,35 @@ podman compose exec -T php php -v
 podman compose exec -T cron php -v
 ```
 
-For OpenShift, build and publish a new image tag through the existing CI/CD
-pipeline, deploy that tag, and verify PHP versions in both the PHP workload and
-cron workload. Updating these files alone does not patch running containers.
+For a runtime-only patch that must preserve deployed application code and
+configuration, [Containerfile.runtime-patch](Containerfile.runtime-patch) accepts
+`DEPLOYED_IMAGE` and `RUNTIME_IMAGE`. Build separate PHP and cron patch images
+from the appropriate updated runtimes, use the deployed PHP image's digest as
+the application source, and verify code hashes, extensions, and startup before
+rollout. Normal releases should promote tested image tags through environments.
 
-For an urgent runtime-only update, `Containerfile.runtime-patch` can retain the
-deployed application's files, including its environment-specific `config.php`.
-Build the normal PHP and cron images first, then build a patch image for each:
+## Repository guide
 
-```sh
-podman build --platform=linux/amd64 \
-  --build-arg DEPLOYED_IMAGE="$DEPLOYED_PHP_IMAGE" \
-  --build-arg RUNTIME_IMAGE="$UPDATED_RUNTIME_IMAGE" \
-  -f Containerfile.runtime-patch \
-  -t "$PATCH_IMAGE" .
-```
+| Location | Contents |
+|---|---|
+| [Makefile](Makefile) and [compose.yaml](compose.yaml) | Local build and development commands |
+| `Containerfile.*` | PHP, web, cron, operations, and runtime-patch image builds |
+| [config/](config/) | Moodle, nginx, PHP, and Valkey configuration |
+| [chart/psa-moodle/](chart/psa-moodle/) | Helm templates and default, dev, test, and PoC values |
+| [.github/workflows/](.github/workflows/) | Build, lint, deploy, and scheduled rebuild workflows |
+| [scripts/ops/](scripts/ops/) | Backup integrity, restore rehearsal, snapshot, and alert scripts |
+| [docs/](docs/) | Planning documents, reviews, and operational runbooks |
 
-Use the deployed PHP image's digest for `DEPLOYED_PHP_IMAGE`. Set
-`UPDATED_RUNTIME_IMAGE` to the newly built PHP or cron image, respectively, and
-give each resulting `PATCH_IMAGE` a new release tag. The web image can retain its
-existing contents because the Moodle source is unchanged. Verify application
-file hashes, PHP versions, required extensions, and native FPM startup before
-rolling out the patch. This path does not advance Moodle or require a Moodle
-database upgrade.
+Start with the [quota request](docs/quota-request.md) for the new project set.
+For implementation details, see the [image build guide](docs/phase2-images.md),
+[Helm deployment guide](docs/phase3-deploy.md),
+[hardening notes](docs/phase4-hardening.md),
+[CI/CD guide](docs/phase5-cicd.md), and
+[backup tooling guide](docs/phase6-backups.md). These guides record earlier
+implementation work and may retain PoC settings; check the current chart and
+new project plan before applying their commands.
 
-### Plugin set (built into the image)
-
-| Component | Source | Notes |
-|---|---|---|
-| `block_course_search` | [bcgov/moodle-course-search](https://github.com/bcgov/moodle-course-search) | cloned at build time |
-| `local_githubsync` | [PSA-Corporate-Learning-Branch/moodle-local_githubsync](https://github.com/PSA-Corporate-Learning-Branch/moodle-local_githubsync) | cloned at build time |
-| `local_psaelmsync` | [PSA-Corporate-Learning-Branch/psaelmsync](https://github.com/PSA-Corporate-Learning-Branch/psaelmsync) | cloned at build time |
-| `mod_pathcurator` | [itr8tech/pathcurator-moodle](https://github.com/itr8tech/pathcurator-moodle) | cloned at build time |
-| `mod_hvp` | [h5p/moodle-mod_hvp](https://github.com/h5p/moodle-mod_hvp) | upstream is unmaintained against 4.x — migration to core `mod_h5pactivity` is on the cutover decision list |
-| `theme_bcgovpsa` | [bcgov/bcgovpsa-moodle](https://github.com/bcgov/bcgovpsa-moodle) | child theme, parent is core `boost` |
-
-SSO is configured at runtime through Moodle core's OAuth2 support (`admin/tool/oauth2/issuers.php` + the core `auth_oauth2` plugin) — no third-party OIDC plugin is baked into the image. Phase 4 adds the egress NetworkPolicy allows so the OAuth2 flow can reach the IdP.
-
----
-
-## Architecture (target, dev/test)
-
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│  OpenShift Route (TLS, raised timeout)                                    │
-│           │                                                               │
-│           ▼                                                               │
-│  ┌─────────────┐   PHP-FPM   ┌─────────────┐                              │
-│  │  web (nginx)│ ──────────► │  php (fpm)  │                              │
-│  │  immutable  │             │  immutable  │                              │
-│  └─────────────┘             └──────┬──────┘                              │
-│                                     │                                     │
-│                              ┌──────┼──────┐                              │
-│                              ▼      ▼      ▼                              │
-│                          ┌──────┐ ┌────┐ ┌────────────────┐               │
-│                          │valkey│ │ pg │ │ moodledata RWX │               │
-│                          │(LF)  │ │HA  │ │ netapp-file-   │               │
-│                          │      │ │    │ │ standard       │               │
-│                          └──────┘ └────┘ └────────────────┘               │
-│                                     ▲                                     │
-│                                     │ pgBackRest → in-cluster PVC repo    │
-│                              ┌──────┴──────┐                              │
-│                              │ backup +    │                              │
-│                              │ integrity   │                              │
-│                              │ verify Cron │                              │
-│                              └─────────────┘                              │
-│                                                                           │
-│  cron: Kubernetes CronJob (1 min, isolated pod per tick)                  │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Reference
-
-- [Architecture assessment, 2026-04-12](../moodle-openshift-architecture-assessment-2026-04-12.md)
-- [Restore/storage assessment, 2026-04-12](../moodle-openshift-restore-storage-assessment-2026-04-12.md)
-- [Warren's April work review, 2026-05-16](../moodle-warren-april-review-2026-05-16.md) — drives the Phase 6 backup-integrity work
-- [Original repo: `bcgov/moodle-nginx`](../moodle-nginx) — reference only; not deployed from
+The original architecture and incident assessments are separate background
+working documents, not dependencies of this repository. This README summarizes
+the design rationale and links only to documentation and source files included
+in the checkout.
