@@ -32,6 +32,11 @@ These rules apply to test and prod, and to any namespace that later takes over e
 
 ## Current direction
 
+> **Superseded, pending review (2026-11-18).** The current plan is to replatform **inside** the
+> existing 950003 namespaces, not in a new project set. See
+> [docs/replatform-950003-runbook.md](docs/replatform-950003-runbook.md), a draft for review.
+> The text below records the earlier direction.
+
 **The next step is to request a new Silver project set.** The `a58ce1` license
 plate hosts the proof of concept; it is not the destination for the full
 replacement. The new license plate has not yet been assigned.
