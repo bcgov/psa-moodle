@@ -1,6 +1,12 @@
-# Overrides for a58ce1-test. Production-shaped topology so multi-pod paths
-# are exercised before any prod talk (per the 2026-04-12 restore assessment's
-# point about prod-only failures emerging with multi-pod request flow).
+# Overrides for the TEST environment.
+#
+# TEST IS PRODUCTION-GRADE. Course developers and instructional designers build
+# courses there (README, "Environment roles"). Ship to test only with a fresh
+# verified backup, an agreed window and a rollback. Load tests, restore drills
+# and failover experiments run in dev, never here.
+#
+# Production-shaped topology, per the 2026-04-12 restore assessment's point about
+# prod-only failures emerging with multi-pod request flow.
 
 moodle:
   wwwroot: "https://psa-moodle-test.apps.silver.devops.gov.bc.ca"
@@ -41,9 +47,9 @@ monitoring:
 backup:
   alerts:
     to: "Allan.Haggett@gov.bc.ca"
-  # Test is where the restore-rehearsal CronJob actually earns its keep:
-  # multi-pod, prod-shaped data, so a deliberately-corrupted backup will
-  # trigger the same way it would in prod.
+  # The weekly restore-rehearsal CronJob runs here as routine verification, as in
+  # prod: it restores into a temporary cluster and never touches the live one.
+  # Deliberate-corruption tests of the alerts run in dev only.
   # See values.yaml — moodledata snapshots can't run on the RWX/NFS volume; keep
   # snapshotClass empty. moodledata off-site backup is the tracked prod item.
   moodledataSnapshot:

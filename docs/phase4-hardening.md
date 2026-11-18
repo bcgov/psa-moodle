@@ -1,6 +1,6 @@
 # Phase 4 — Operational hardening
 
-This phase tightens what Phase 3 deployed. None of it changes the application — it changes how the platform reacts when things go wrong (node drains, hot pods, hostile egress) so prod-shape failures surface in `a58ce1-test`, not in front of learners.
+This phase tightens what Phase 3 deployed. None of it changes the application — it changes how the platform reacts when things go wrong (node drains, hot pods, hostile egress) so prod-shape failures surface in dev, not in front of learners or course developers. Test is production-grade; see [Environment roles](../README.md#environment-roles-read-this-first).
 
 Route timeout (900s) was already done in Phase 3. Phase 4 adds:
 
@@ -8,7 +8,7 @@ Route timeout (900s) was already done in Phase 3. Phase 4 adds:
 |---|---|---|
 | `PodDisruptionBudget` × 2 (web, php) | `maxUnavailable: 1` — drains can't take *both* replicas down in test. In dev the single replica still drains (with a brief outage); accepted. | `oc get pdb` |
 | `topologySpreadConstraints` on web + php Deployments | Spread replicas across `topology.kubernetes.io/zone`; `ScheduleAnyway` so single-AZ degradation doesn't block scheduling. | `oc get pods -o wide` — check the `NODE` column spans zones |
-| `HorizontalPodAutoscaler` × 2 (web, php) | CPU-based, conservative bounds. **Off in dev, on in test** so the scale path is exercised before any prod talk. | `oc get hpa` |
+| `HorizontalPodAutoscaler` × 2 (web, php) | CPU-based, conservative bounds. **On in test, off in dev by default.** Exercise the scale path in dev by enabling `hpa.web` and `hpa.php` there; never load-test test or prod. | `oc get hpa` |
 | Egress `NetworkPolicy` × 7 | Default-deny egress + explicit allows: DNS, in-cluster pod-to-pod (web→php, app→valkey, app→postgres), external 443 (HTTPS), external 25 (SMTP from ops jobs). | `oc get networkpolicy` |
 
 What this phase does **not** do:
@@ -117,12 +117,12 @@ oc -n a58ce1-test get hpa -l app.kubernetes.io/instance=psa-moodle
 
 If you see `<unknown>`: check `oc adm top pods -n a58ce1-test`. If that also fails, OpenShift's user-workload-monitoring or metrics-server isn't reaching these pods. That's a Platform-side fix (file with Platform Services, not a chart change).
 
-To prove scale-up actually triggers, run `apache-bench` or `hey` from inside the cluster against the Route for ~2 minutes:
+To prove scale-up actually triggers, enable the HPA in dev and run `apache-bench` or `hey` from inside the cluster against the **dev** Route for about 2 minutes. Never point load at test or prod:
 
 ```sh
-oc -n a58ce1-test run hey --rm -it --image=docker.io/rakyll/hey -- \
-  -z 2m -c 50 https://psa-moodle-test.apps.silver.devops.gov.bc.ca/
-oc -n a58ce1-test get hpa -w
+oc -n a58ce1-dev run hey --rm -it --image=docker.io/rakyll/hey -- \
+  -z 2m -c 50 https://psa-moodle-dev.apps.silver.devops.gov.bc.ca/
+oc -n a58ce1-dev get hpa -w
 ```
 
 Watch REPLICAS climb toward `maxReplicas` while load is on; it should settle back to `minReplicas` ~5 min after the load stops (the `scaleDown.stabilizationWindowSeconds: 300` in the HPA).

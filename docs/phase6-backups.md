@@ -46,7 +46,7 @@ All four CronJobs share `scripts/ops/alert.sh`. It calls `swaks` against `apps.s
 
 ## The deliberate-corruption test (Phase 6 acceptance)
 
-The whole point of this work is "would we have caught Warren's April incident?" The answer has to be yes, demonstrably. Run this in `a58ce1-test`:
+The whole point of this work is "would we have caught Warren's April incident?" The answer has to be yes, demonstrably. Run this in **dev only**. These tests patch CronJobs and drop a live table, so they never run in test or prod (see [Environment roles](../README.md#environment-roles-read-this-first)). Test 3 needs the restore-rehearsal CronJob, which is off in dev by default, so enable it there first:
 
 ### Test 1 — Stale full backup
 
@@ -54,11 +54,11 @@ Force `pgbackrest info` to report a too-old full backup by simulating a window w
 
 ```sh
 # Pause the scheduled fulls (set MAX_FULL_BACKUP_AGE_HOURS to a tiny number temporarily)
-oc -n a58ce1-test patch cronjob psa-moodle-backup-integrity --type=json \
+oc -n a58ce1-dev patch cronjob psa-moodle-backup-integrity --type=json \
   -p '[{"op":"replace","path":"/spec/jobTemplate/spec/template/spec/containers/0/env/-","value":{"name":"MAX_FULL_BACKUP_AGE_HOURS","value":"1"}}]'
 
 # Trigger the integrity job manually instead of waiting for the daily.
-oc -n a58ce1-test create job --from=cronjob/psa-moodle-backup-integrity force-stale-1
+oc -n a58ce1-dev create job --from=cronjob/psa-moodle-backup-integrity force-stale-1
 
 # Expect:
 #   - Job fails (non-zero exit)
@@ -73,10 +73,10 @@ Revert the patch after.
 This is the Warren April scenario, mirrored:
 
 ```sh
-# Drop a canonical table from the live DB (test env only — never prod!).
-oc -n a58ce1-test exec deploy/psa-moodle-php -- psql -c "DROP TABLE mdl_sessions;"
+# Drop a canonical table from the live DB (dev only — never test or prod!).
+oc -n a58ce1-dev exec deploy/psa-moodle-php -- psql -c "DROP TABLE mdl_sessions;"
 
-oc -n a58ce1-test create job --from=cronjob/psa-moodle-backup-integrity force-missing-table
+oc -n a58ce1-dev create job --from=cronjob/psa-moodle-backup-integrity force-missing-table
 
 # Expect:
 #   - Job fails
@@ -84,7 +84,7 @@ oc -n a58ce1-test create job --from=cronjob/psa-moodle-backup-integrity force-mi
 #   - Body includes "required table missing in live primary: mdl_sessions"
 
 # Restore the table by running upgrade.php — Moodle recreates missing core tables.
-oc -n a58ce1-test exec deploy/psa-moodle-php -- php /var/www/html/admin/cli/upgrade.php --non-interactive
+oc -n a58ce1-dev exec deploy/psa-moodle-php -- php /var/www/html/admin/cli/upgrade.php --non-interactive
 ```
 
 ### Test 3 — Restore rehearsal smoke
@@ -92,10 +92,10 @@ oc -n a58ce1-test exec deploy/psa-moodle-php -- php /var/www/html/admin/cli/upgr
 Trigger the weekly rehearsal manually:
 
 ```sh
-oc -n a58ce1-test create job --from=cronjob/psa-moodle-restore-rehearsal force-rehearsal-1
+oc -n a58ce1-dev create job --from=cronjob/psa-moodle-restore-rehearsal force-rehearsal-1
 
 # Watch:
-oc -n a58ce1-test get postgrescluster -w
+oc -n a58ce1-dev get postgrescluster -w
 # Expect: a temporary "psa-moodle-pg-rehearsal" cluster appears, primary
 #         becomes Ready (~5 min), then the cluster is deleted.
 

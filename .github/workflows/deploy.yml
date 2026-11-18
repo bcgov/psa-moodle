@@ -6,6 +6,11 @@
 #                         (gated by the `test` GitHub Environment, which can
 #                         require reviewers via repo settings)
 #
+# TEST IS PRODUCTION-GRADE: course developers build courses there (README,
+# "Environment roles"). Configure required reviewers on the `test` GitHub
+# Environment before enabling this path, and deploy to test only with a fresh
+# verified backup, an agreed window and a rollback.
+#
 # This workflow does NOT have a production path by design — production is a
 # separate Phase 8 decision and its values-prod.yaml does not exist yet.
 
