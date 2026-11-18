@@ -1,5 +1,7 @@
 # Initial quota request — PSA Moodle on a new license plate
 
+> **Environment roles changed on 2026-11-17.** This request assumes test hosts scaling and recovery exercises. Test is production-grade because course developers build courses there, so those exercises belong in dev. See [Environment roles](../README.md#environment-roles-read-this-first).
+
 Prepared: **2026-10-22**. Evidence review: **2026-10-26**. Target: a **new Silver project set**, license plate to be assigned (`<new-plate>-dev`, `-test`, `-prod`, and `-tools`).
 
 This request replaces the earlier proposal to enlarge the reused `a58ce1` project set. `a58ce1` is the proof of concept; `950003` is the existing Moodle architecture. Neither is the destination of this request. The figures below are a proposed **initial provisioning budget**, not measured production demand or a completed migration sizing exercise.

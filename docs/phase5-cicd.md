@@ -65,7 +65,9 @@ Create two environments under repo Settings → Environments:
 - Optional: deployment branches restricted to `main`
 - Used by the manual-dispatch promotion path
 
-When a teammate triggers `deploy.yml` with `environment=test`, the workflow pauses at the deploy job until a required reviewer approves it in the GitHub UI. This is the only release gate between us and production until Phase 8 adds prod.
+When a teammate triggers `deploy.yml` with `environment=test`, the workflow pauses at the deploy job until a required reviewer approves it in the GitHub UI.
+
+**Test is production-grade** (course developers build courses there; see [Environment roles](../README.md#environment-roles-read-this-first)). This gate is mandatory: do not enable the test path until the `test` environment exists with required reviewers. On 2026-11-17 the repository had only a `dev` environment. A deploy to test also needs a fresh verified backup, an agreed window and a rollback.
 
 ---
 

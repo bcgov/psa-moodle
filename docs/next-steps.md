@@ -93,8 +93,9 @@ Only `-dev` exists today; the handover doc scopes dev/test/tools.
 
 The chart has pgBackRest and a weekly restore-rehearsal, but a backup you haven't restored
 isn't a backup. Given the Galera split-brain that motivated this re-platform, **do a real
-restore drill in `-test`**: take a backup, destroy the cluster, restore, verify Moodle
-returns with data intact. Document the runbook — including **repointing Moodle's DB
+restore drill in dev**: take a backup, destroy the cluster, restore, verify Moodle
+returns with data intact. Never run it in test, which is production-grade (see
+[Environment roles](../README.md#environment-roles-read-this-first)). Document the runbook — including **repointing Moodle's DB
 connection** to the restored cluster (the operator regenerates the `pguser` password on
 restore, so capture/rotate that too).
 

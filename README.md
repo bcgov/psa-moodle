@@ -11,6 +11,25 @@ shared storage holds Moodle data rather than application code. The design
 replaces the legacy `bcgov/moodle-nginx` deployment's MariaDB Galera database,
 shared application-code volume, and custom Redis proxy arrangement.
 
+## Environment roles: read this first
+
+Three environments serve PSA Moodle. Two of them are production.
+
+| Environment | Who relies on it | Treat it as |
+|---|---|---|
+| `950003-prod` | Learners across the BC Public Service | **Production** |
+| `950003-test` | Course developers and instructional designers, who build courses here and move them to prod as `.mbz` course backups | **Production** |
+| `950003-dev` | Nobody. It is ephemeral and can be wiped at any time. | The only place for experiments |
+
+These rules apply to test and prod, and to any namespace that later takes over either role, including the replacement's own `-test`:
+
+- **No experiments.** Load tests, restore and failover drills, deliberate-corruption tests, untried scripts and configuration changes are proven in dev or locally first, never in test or prod.
+- **No change without preparation.** Each change needs a fresh verified backup of the database and moodledata, a window agreed with the people who use the environment, maintenance mode, a go/no-go check before users return, and a written rollback.
+- **The same Moodle in both.** Test and prod run the identical Moodle build and plugin set. Courses move from test to prod as `.mbz` backups, and Moodle cannot restore a backup made on a newer version.
+- **Test's data is not disposable.** Its database, files and configuration are never reset, refreshed from prod or overwritten without the course developers' agreement.
+- **Reading is fine.** Read-only inspection of test and prod needs no window.
+
+
 ## Current direction
 
 **The next step is to request a new Silver project set.** The `a58ce1` license
@@ -85,7 +104,8 @@ Once the new license plate is assigned:
    deployment secrets for the new namespaces. Reconcile the existing dev/test
    profiles with the proposed topology and resource budget.
 4. Validate a clean installation, then exercise scaling, failover, backups, and
-   complete recovery with representative data before planning cutover.
+   complete recovery with representative data in dev before planning cutover.
+   Never use test for these exercises (see [Environment roles](#environment-roles-read-this-first)).
 
 The [PoC deploy runbook](docs/poc-deploy-runbook.md) records how the demonstration
 was deployed. Treat its internal-registry settings and `a58ce1-dev` commands as
