@@ -1,8 +1,9 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v0.2 for review, 2026-11-18. Nothing in this runbook has been executed.**
+> **Status: DRAFT v0.3 for review, 2026-11-18. Nothing in this runbook has been executed.**
 > v0.2 incorporates the independent review of v0.1 ([replatform-950003-review.md](replatform-950003-review.md),
 > findings R1–R12). It accepts all twelve findings and its additional corrections. §0 shows where each one is addressed.
+> v0.3 adds facts learned during the 2026-11-18 prod mojibake fix window (a separate, completed change); §0.1 lists them.
 > It supersedes the "request a new project set" direction in `README.md` (Current direction) and
 > `docs/quota-request.md`. The new plan is to replatform **inside** the existing 950003 namespaces
 > on Silver, using their existing quota, then release ad4087 (Gold) and retire a58ce1.
@@ -24,7 +25,7 @@ The service owner is cautious and wants a plan that cannot strand them.
 **Please try to break this promise.**
 
 **If you reviewed v0.1:** check first that each of R1–R12 is actually resolved by the sections listed in §0, and that the
-fixes have not introduced new gaps.
+fixes have not introduced new gaps. Then check the new facts in §0.1 and the sections they changed.
 
 Look especially for:
 
@@ -73,6 +74,21 @@ re-verifies them.
 | Owner: GitHub sync unused | Kept disabled on copies; removed from acceptance. | §5.9, §15 |
 | Corrections | Prod storage is 93.10 GiB requested, not 95.3. Prod's custom Route has no timeout annotation (router default 30 s). Legacy dev is currently broken. | §5.4, §5.7, §5.5 |
 
+## 0.1 Changes in v0.3 (facts from the 2026-11-18 prod mojibake window)
+
+The prod mojibake fix ran on 2026-11-18, 15:31–16:50 MST, under its own runbook (private, not in git). It touched
+only prod's database content and search index. These facts from it change this plan:
+
+| Fact | What changed | Where |
+|---|---|---|
+| The weekly legacy deploy comes from `scheduled-rebuild.yml`, not `build.yml`. `build.yml` has no schedule. `scheduled-rebuild.yml` was **disabled** on 2026-11-18. | E4 names both workflows; trigger list corrected | §3 E4, §5.5, §9 |
+| **26 columns in prod are binary-typed** (`longblob`/`varbinary`) where Moodle defines text, most likely left over from the 2025 encoding conversion. Every census and comparison must cover binary types. | New §5.2 bullet; schema check expects these differences; `compare-content.sh` normalises binary vs text | §5.2, §8.3, §8.4, §15 |
+| **Prod mojibake is fixed**: 80,726 values, 76,644 of them in those binary-typed columns. There's a new post-fix baseline dump, and three explained exceptions remain. | Phase 1 uses the new baseline; acceptance expects the exceptions | §5.12, §15 |
+| Test's mojibake count (51) came from a text-only census | Being re-checked over binary-typed columns | §5.12 |
+| Maintenance behaviour verified live in prod | Details added | §5.10, §13.1 |
+| `search_simpledb_index` is derived data, produced through `html_to_text()` (non-breaking spaces become spaces and headings are upper-cased) | Rebuilt after a copy, not compared or converted | §8.3, §15 |
+| Owner decisions: test stays in web maintenance until next week or its replatform; Q18 deferred to E4 | Recorded | §6, §16 |
+
 ## 1. Summary
 
 | | |
@@ -100,8 +116,9 @@ re-verifies them.
   - **E1** Maintenance mode on or off, using the exact commands in §5.10.
   - **E2** Scaling legacy cron, web, php, redis, sentinel or redis-proxy down and back up during a window (§11.2, §13.4).
   - **E3** Repointing the public Routes' backend, timeout annotation and target port (§13.2). Certificates are never changed.
-  - **E4** Pausing legacy automation: disabling the `build.yml` workflow in GitHub (all its triggers) and scaling the
-    pod-health-monitor to 0. Done before coexistence in each namespace, with restoration conditions (§9.0).
+  - **E4** Pausing legacy automation: disabling the `build.yml` workflow in GitHub (all its triggers) and
+    `scheduled-rebuild.yml` (already disabled on 2026-11-18), and scaling the pod-health-monitor to 0. Done before
+    coexistence in each namespace, with restoration conditions (§9.0).
   - **E5** Bail-out writes, during a bail-out only (§14): create and load a separate `moodle_bailout` database in Galera;
     add files to legacy moodledata (add-only, never delete or overwrite); swap the databases with one `RENAME TABLE`
     statement; purge legacy caches.
@@ -177,6 +194,20 @@ scaled to 0; §13.4 is the sequence for bringing them back.
     `_backup`, `_backup_20240522`, `_backup2`, `_bad_restore`, `_copy2` and `_muckedup`.
   - Test only: `local_psaelmsync_enrol`.
 - `tool_dbtransfer` rebuilds `log_display` in the target, so that table is an expected difference (§8.3).
+- **Binary-typed columns (prod, found 2026-11-18).** 26 columns are `longblob` or `varbinary` where Moodle's XMLDB
+  defines text or char, most likely left over from the 2025 encoding conversion:
+  - content: `page.content`, `book_chapters.content`, `forum_posts.message`, `event.description`,
+    `hvp_xapi_results.description`, `question_attempts.questionsummary`, `.responsesummary`, `.rightanswer`;
+  - short fields: `course.format`, `qtype_multichoice_options.answernumbering`, `quiz_attempts.state`, `user.auth`,
+    `user.calendartype`, `user.lang`, `user.timezone`, `wiki.defaultformat`, `wiki.firstpagetitle`, `wiki.name`,
+    `wiki.wikimode`;
+  - `sha256hash` in `local_psaelmsync_logs` and its six ad-hoc copies.
+
+  Consequences: `check_database_schema.php` reports them; binary columns compare byte-wise and case-sensitively in
+  MariaDB; any census or content comparison must include binary types (the 2026-11-17 census did not, and missed
+  76,644 mojibake values). After the 2026-11-18 fix every value in them is valid UTF-8. Test has not been checked yet
+  (Phase 0, step 0.9). Whether to convert them back to text in legacy is **not** part of this plan; the migration
+  writes them into the new schema's text columns.
 - **Verified backups** are in `~/Moodle/private-backups/`: prod at 2026-11-17T00:20Z and test at 2026-11-17T23:10Z.
 
 ### 5.3 moodledata
@@ -204,11 +235,15 @@ Each namespace has 4 CPU / 32 GiB / 96 GiB. Figures are **requests against quota
   free space.
 
 ### 5.5 Legacy machinery that can interfere
-- **`build.yml` is the only legacy workflow that deploys.** Its triggers are the weekly schedule (Saturday 03:00 UTC, cron
-  `0 3 * * 6`), pushes and pull requests to `950003-dev`, `950003-test` or `950003-prod`, and manual dispatch. The other
-  workflows are called by it (`workflow_call`), or don't touch the cluster (`notify.yml`, `security-comprehensive.yml`).
-  Disabling the `build.yml` workflow stops all four triggers. Queued or running runs must also be cancelled.
-- The scheduled run deploys to dev, fails every week, and leaves dev on the maintenance page.
+- **`build.yml` is the only legacy workflow that deploys.** Its own triggers are pushes and pull requests to
+  `950003-dev`, `950003-test` or `950003-prod` (including dependabot PRs to `950003-dev`), and manual dispatch
+  (`workflow_dispatch`). **It has no schedule.** The weekly run comes from a separate workflow, `scheduled-rebuild.yml`
+  (Saturday 03:00 UTC, cron `0 3 * * 6`, on `main`), which dispatches `build.yml` on `950003-dev`. The other workflows
+  are called by `build.yml` (`workflow_call`), or don't touch the cluster (`notify.yml`, `security-comprehensive.yml`).
+  E4 disables both; queued or running runs must also be cancelled.
+- **`scheduled-rebuild.yml` was disabled on 2026-11-18** (owner request; `gh workflow disable scheduled-rebuild.yml`;
+  undo `gh workflow enable`). No run was queued or running. Before that, the weekly run deployed to dev, failed every
+  week, and left dev on the maintenance page.
 - **Cleanup deletes by fixed name.** `cleanup.yml` deletes the Service, Deployment, ConfigMap, PVC, Route and Secret by
   name. A new object whose name matches a legacy name could be deleted, or could break the legacy deploy.
 - **Legacy maintenance scripts patch every Route in the namespace.** `openshift/scripts/utils/maintenance-mode.sh` (lines 98–100)
@@ -284,6 +319,16 @@ Each namespace has 4 CPU / 32 GiB / 96 GiB. Figures are **requests against quota
 - Because `maintenance_enabled = 'cli mode'` is in the database, a copy taken during CLI maintenance should start in web maintenance
   even without `climaintenance.html`. Rehearsal confirms this.
 - Maintenance mode alone does not prove that every writer has stopped. §13.1 adds the drain and the quiescence check.
+- **Observed in prod on 2026-11-18** (mojibake window):
+  - `--enable` returned 503 on both hostnames at once. A cron process that was already running finished its keep-alive
+    loop about a minute later; after that, cron logged "CLI maintenance mode active, cron execution suspended" and
+    `wsrep_last_committed` stayed constant. A frozen dump then matched live row counts on 719/719 tables.
+  - The CLI maintenance page shows `$CFG->maintenance_message` (prod's now reads "We're running some upgrades, back
+    soon!"). `--enable` is a no-op while `climaintenance.html` exists; to refresh the page after changing the message,
+    call core `enable_cli_maintenance_mode()`.
+  - `--disable && --enableold` moved to web maintenance with about one second open between the two commands. Anonymous
+    requests then redirect to the login page, which shows the message (prod has `forcelogin = 1`).
+  - CLI scripts other than cron (`purge_caches.php`, `search/cli/indexer.php`) run normally under CLI maintenance.
 
 ### 5.11 Legacy `config.php` settings that psa-moodle does not set
 - `disablelogintoken = true`
@@ -296,9 +341,20 @@ Each namespace has 4 CPU / 32 GiB / 96 GiB. Figures are **requests against quota
 Each one needs a decision, recorded in §16.
 
 ### 5.12 Data quality
-- **Prod mojibake fix:** scheduled for 2026-11-18 at 15:30, following its own runbook. Phase 1 uses the **post-fix** prod backup.
+- **Prod mojibake: fixed on 2026-11-18** (15:31–16:50 MST, own runbook, owner-approved at each step). 80,726 values were
+  repaired: 4,082 in text columns and 76,644 in binary-typed columns (§5.2). Every hash guard matched before and after;
+  the search index was rebuilt with `search/cli/indexer.php --reindex`.
+  - Acceptance (text **and** binary columns, plus a stray-character check): zero mojibake outside the excluded tables,
+    except three explained values the owner accepted: (1) `hvp_libraries_languages` id 863 "Âm", a Vietnamese word;
+    (2) `book_chapters` id 961 and its search document: one invisible orphaned U+009D; (3) 8 orphaned search documents
+    for deleted sections and database entries, which Moodle deletes when a search touches them (`ACCESS_DELETED`).
+  - Left as recorded: `task_log`, `log_queries`, `config_log` and four ad-hoc `local_psaelmsync_logs_*` copies.
+  - **Phase 1 uses the final post-fix baseline** `950003-prod-moodle-postfix2-20261118T233645Z.sql.gz` (private folder,
+    SHA-256 recorded; taken frozen, 719/719 identical to live), or a newer frozen dump at cutover.
 - **Test mojibake:** 51 known values plus one U+FFFD, all in courses that will not be used. The owner decided on 2026-11-18 **not
-  to fix** them. Test's acceptance census expects exactly these.
+  to fix** them. Test's acceptance census expects exactly these. **Caveat:** that count came from a census that skipped
+  binary-typed columns. Test is being re-checked over all column types (2026-11-18); this decision is revisited if it
+  finds more.
 
 ## 6. Open questions for the owner
 
@@ -323,7 +379,7 @@ Each one has a default for when it goes unanswered. Phase 0 answers some of them
 | Q15 | Are there events to avoid when choosing windows (cohort starts, deadlines)? | Choosing windows | Ask before each window |
 | Q16 | Is copying production personal data to the owner's encrypted laptop acceptable under PSA policy for the migration pipeline? | §13 uses a local pipeline | It was done on 2026-08-26 and 2026-11-17; confirm |
 | Q17 | Legacy dev is broken (Galera 4/5, Routes on the maintenance page). Repair it in dev, or rehearse Pass B another way? | Pass B needs a healthy legacy source | After E4 stops the weekly damage, repair legacy dev as its own approved dev-only step |
-| Q18 | Test's health monitor runs in automatic mode with the Galera scale-to-zero failsafe. Switch it to `MANUAL_MODE=true` now, ahead of this plan? | It is a live risk to test today, independent of the replatform | Recommended; one approved change to test |
+| Q18 | Test's health monitor runs in automatic mode with the Galera scale-to-zero failsafe. Switch it to `MANUAL_MODE=true` now, ahead of this plan? | It is a live risk to test today, independent of the replatform | *Owner 2026-11-18: deferred. The replatform starts within days and E4 scales the monitor to 0 anyway. Revisit if it slips.* |
 
 ## 7. Phase 0: read-only discovery (this is where we start)
 
@@ -341,7 +397,7 @@ Each one has a default for when it goes unanswered. Phase 0 answers some of them
 | 0.6 | Check Crunchy on Silver | `oc api-resources --api-group=postgres-operator.crunchydata.com`. RBAC blocks cluster-scoped reads, so ask the platform team for the operator version if needed. |
 | 0.7 | Decide where images live | Look for 950003 Artifactory objects in 950003-tools and the pull-secret names in each namespace (Q13) |
 | 0.8 | Check legacy automation | Health-monitor settings and **where its alerts go**; how legacy cron runs; legacy HPAs (scaling a target to 0 under an HPA); `gh workflow list` and `gh run list` for moodle-nginx, and the default branch (`gh api repos/bcgov/moodle-nginx --jq .default_branch`) |
-| 0.9 | Read Moodle settings (SQL, prod and test) | Enabled auth plugins; OAuth2 issuers (names and enabled flags only); **every `local_psaelmsync` and `local_githubsync` setting name** (names only, to build the guard's override list); enabled scheduled tasks for `local_*` with their last runs; web-service tokens by service, user and last access (no token values); users with `moodle/site:maintenanceaccess`; database users (`mysql.user` names and hosts); `pathto*` settings; `backup_auto_destination`; repository instance types |
+| 0.9 | Read Moodle settings (SQL, prod and test) | Enabled auth plugins; OAuth2 issuers (names and enabled flags only); **every `local_psaelmsync` and `local_githubsync` setting name** (names only, to build the guard's override list); enabled scheduled tasks for `local_*` with their last runs; web-service tokens by service, user and last access (no token values); users with `moodle/site:maintenanceaccess`; database users (`mysql.user` names and hosts); `pathto*` settings; `backup_auto_destination`; repository instance types; column types that differ from XMLDB (`admin/cli/check_database_schema.php`, report only), especially binary-typed text columns in **test** (§5.2) |
 | 0.10 | Check custom script usage | Grep legacy web-pod logs for requests to the §5.9 scripts (Q8) |
 | 0.11 | Measure data sizes | Database size from `information_schema`; moodledata from `df` plus `SUM(filesize)` over distinct `contenthash`; **free space on each Galera PVC** (`df` in each Galera pod) |
 | 0.12 | Check how legacy serves maintenance | Whether `maintenance-message` exists and runs in each namespace; whether legacy web and php serve `climaintenance.html` without Redis (answered in dev Pass B) |
@@ -408,7 +464,10 @@ These go in `ops/replatform/`:
 - `compare-content.sh` (R12): for every table, export rows ordered by primary key with normalized types, and compute a SHA-256
   per row and per table on both sides, with the prefix mapped. Report any table whose hash differs.
   `expected-differences.md` lists each accepted difference with its reason, starting with `log_display` (rebuilt by
-  `tool_dbtransfer`). Any difference not on the list is a no-go.
+  `tool_dbtransfer`) and `search_simpledb_index` (derived data: rebuilt on the target with
+  `search/cli/indexer.php --reindex`, never compared). Any difference not on the list is a no-go.
+  Values from the 26 binary-typed source columns (§5.2) are compared as UTF-8 text after normalisation, so a type change
+  alone is not a difference. The comparison and any census cover **all** column types, text and binary.
 - `moodledata-copy-job.yaml`: a one-off Job that mounts the legacy moodledata PVC **read-only** and the new PVC read-write, and runs
   `rsync -a` excluding `cache/ localcache/ sessions/ temp/ lock/ trashdir/ muc/ climaintenance.html`.
 - `check-filedir`: confirms that every non-directory `contenthash` in `files` exists in the target filedir, with the right size,
@@ -420,7 +479,8 @@ These go in `ops/replatform/`:
 ### 8.4 Full local rehearsal
 Use the **post-fix prod dump** and the test dump. The local stack runs on a Podman network created with `--internal`, so it
 has no route to the internet.
-1. Restore, then run the schema check. Expect **only** the extra tables in §5.2, then drop them in the copy.
+1. Restore, then run the schema check. Expect **only** the extra tables and the 26 binary-typed columns in §5.2. Drop
+   the extra tables in the copy.
 2. Run `tool_dbtransfer` into Postgres and time it. Run `compare-content.sh`: only the expected differences.
 3. Boot psa-moodle locally against the Postgres copy with a sample of moodledata. Check that `admin/index.php` shows
    **no pending upgrade**, the environment check passes, the site starts in maintenance (§5.10), and pages work.
@@ -438,7 +498,7 @@ has no route to the internet.
 
 - **2.0 Prerequisites.**
   - **E4, GitHub (once, for all environments):** disable the `build.yml` workflow (`gh workflow disable`) and cancel any queued
-    or running runs. Recommended at the same time: required reviewers on the GitHub environments, and branch protection on
+    or running runs. `scheduled-rebuild.yml` is already disabled (2026-11-18); confirm it still is. Recommended at the same time: required reviewers on the GitHub environments, and branch protection on
     `950003-test` and `950003-prod`.
     *Restoration condition:* re-enable only if the replatform is abandoned for an environment, and only after its pipeline is fixed.
   - **E4, dev:** scale the dev pod-health-monitor to 0. *Restoration condition:* scale to 1 if the replatform of that
@@ -610,7 +670,10 @@ lost work can still be recovered by hand. This is the owner's decision only.
   - `compare-content.sh` shows only the differences in `expected-differences.md`;
   - `check_database_schema` is clean;
   - `check-filedir` finds no missing files and no SHA-1 mismatches;
-  - mojibake census: prod is zero outside the excluded log tables, and test has exactly the 51 known values plus one U+FFFD.
+  - mojibake census over **text and binary-typed columns**, plus the stray-character check: prod is zero outside the
+    excluded tables except the three explained values in §5.12; test matches §5.12 (51 known values plus one U+FFFD,
+    unless the all-types re-check changes that);
+  - the search index is rebuilt on the target (`search/cli/indexer.php --reindex`) and then passes the same census.
 - **Which stack answered:** every check confirms the `X-PSA-Stack` header.
 - **Login:** SSO ("BC Government Login") on the public hostnames and the local admin account.
 - **Courses:**
@@ -646,14 +709,18 @@ lost work can still be recovered by hand. This is the owner's decision only.
 | 2026-11-18 | Freeze with CLI maintenance; never use the legacy maintenance wrapper | v0.2 (for review) |
 | 2026-11-18 | Pin each environment's image to its legacy build; align test to prod only after both bail-out windows | v0.2 (for review) |
 | 2026-11-18 | Bail-out imports into `moodle_bailout`, then swaps with one `RENAME TABLE` | v0.2 (for review) |
+| 2026-11-18 | Disable moodle-nginx `scheduled-rebuild.yml` (the weekly dev deploy). Done | Owner |
+| 2026-11-18 | Prod mojibake fixed, including binary-typed columns; three explained exceptions accepted (§5.12) | Owner |
+| 2026-11-18 | Test stays in web maintenance until next week or its replatform; communicated and approved | Owner |
+| 2026-11-18 | Q18 deferred to E4 | Owner |
 
 **Pre-Phase-0 findings (independent review, 2026-11-18; Phase 0 re-verifies):**
 - Quota and Routes as in §5.4 and §5.7; NetworkPolicies as in §5.8; health monitors as in §5.5.
 - Both environments use core `oauth2` with "BC Government Login".
 - Prod: `smtphosts = apps.smtp.gov.bc.ca`; web services enabled with 25 token records; all tables InnoDB.
 - Legacy dev: Galera 4/5; Routes on `maintenance-message`.
-- Test: `maintenance_enabled = 1` at the time of the review (web maintenance, set for the 2026-11-17 backup). The owner confirms
-  whether that is intended.
+- Test: `maintenance_enabled = 1` at the time of the review (web maintenance, set for the 2026-11-17 backup). Intended: the
+  owner confirmed on 2026-11-18 that test stays there until next week or its replatform.
 - The PoC's Crunchy pods carry sidecars (§5.4).
 
 Phase 0 findings: *(empty)*

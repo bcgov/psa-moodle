@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="description" content="An assessment of retaining the existing Moodle architecture while replacing unsupported Bitnami images and making frequent deployments reliable.">
+    <title>Moodle: the stabilization alternative</title>
+    <style>
+      :root {
+        --paper: #ffffff;
+        --background: #f3f4f0;
+        --ink: #172c35;
+        --muted: #52646c;
+        --line: #d8e0df;
+        --accent: #12675f;
+        --accent-light: #edf6f2;
+        --caution: #80551c;
+        --caution-light: #fcf4e7;
+        --radius: 14px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 24px;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--background);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 16px;
+        line-height: 1.65;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      a {
+        color: var(--accent);
+        text-underline-offset: 3px;
+      }
+
+      a:hover {
+        text-decoration-thickness: 2px;
+      }
+
+      a:focus-visible,
+      button:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 4px;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      p {
+        margin: 0 0 1em;
+      }
+
+      ul,
+      ol {
+        margin: 0.7em 0 1.3em;
+        padding-left: 1.35em;
+      }
+
+      li + li {
+        margin-top: 0.55em;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.18;
+        text-wrap: balance;
+      }
+
+      h1 {
+        max-width: 800px;
+        margin: 22px 0;
+        font-size: clamp(2.6rem, 5.1vw, 4.5rem);
+        font-weight: 730;
+        letter-spacing: -0.045em;
+      }
+
+      h2 {
+        margin: 0 0 22px;
+        font-size: 2rem;
+        letter-spacing: -0.025em;
+      }
+
+      h3 {
+        margin: 28px 0 14px;
+        font-size: 1.25rem;
+        letter-spacing: -0.01em;
+      }
+
+      code {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 0.86em;
+        overflow-wrap: anywhere;
+      }
+
+      p code,
+      li code,
+      td code {
+        padding: 0.12em 0.3em;
+        border-radius: 4px;
+        background: #f0f3f2;
+      }
+
+      .skip-link {
+        position: absolute;
+        top: -70px;
+        left: 20px;
+        z-index: 10;
+        padding: 12px;
+        background: var(--paper);
+      }
+
+      .skip-link:focus {
+        top: 15px;
+      }
+
+      .masthead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 26px 40px;
+        color: var(--muted);
+        font-size: 0.83rem;
+      }
+
+      .masthead strong {
+        color: var(--ink);
+        font-weight: 650;
+      }
+
+      .print-button {
+        padding: 8px 16px;
+        color: var(--ink);
+        background: transparent;
+        border: 1px solid #b9c7c5;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.83rem;
+        white-space: nowrap;
+      }
+
+      .print-button:hover {
+        background: var(--paper);
+      }
+
+      .hero {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 52px 60px 46px;
+        border-top: 5px solid var(--accent);
+        border-radius: 0 0 var(--radius) var(--radius);
+        background: var(--paper);
+      }
+
+      .eyebrow,
+      .section-number {
+        display: block;
+        color: var(--accent);
+        font-size: 0.76rem;
+        font-weight: 750;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .section-number {
+        margin-bottom: 10px;
+      }
+
+      .hero-deck {
+        max-width: 800px;
+        color: var(--muted);
+        font-size: 1.18rem;
+        line-height: 1.6;
+      }
+
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 26px;
+        margin-top: 30px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 185px minmax(0, 1fr);
+        align-items: start;
+        gap: 40px;
+        max-width: 1200px;
+        margin: 40px auto 80px;
+      }
+
+      .contents {
+        position: sticky;
+        top: 28px;
+        padding: 14px 0;
+        font-size: 0.82rem;
+      }
+
+      .contents-label {
+        display: block;
+        margin-bottom: 14px;
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .contents ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .contents li + li {
+        margin-top: 4px;
+      }
+
+      .contents a {
+        display: block;
+        padding: 8px 0;
+        color: var(--muted);
+        text-decoration: none;
+      }
+
+      .contents a:hover {
+        color: var(--accent);
+      }
+
+      main {
+        min-width: 0;
+        padding: 42px 48px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--paper);
+      }
+
+      section + section {
+        margin-top: 46px;
+        padding-top: 40px;
+        border-top: 1px solid var(--line);
+      }
+
+      .lead {
+        font-size: 1.16rem;
+        line-height: 1.65;
+      }
+
+      .callout {
+        margin: 24px 0;
+        padding: 24px 26px;
+        border-left: 4px solid var(--accent);
+        border-radius: 0 8px 8px 0;
+        background: var(--accent-light);
+      }
+
+      .callout p:last-child,
+      .context-card p:last-child,
+      .decision-card p:last-child {
+        margin-bottom: 0;
+      }
+
+      .callout-title {
+        margin-bottom: 8px;
+        color: var(--accent);
+        font-size: 0.85rem;
+        font-weight: 750;
+      }
+
+      .caution {
+        border-color: var(--caution);
+        background: var(--caution-light);
+      }
+
+      .caution .callout-title {
+        color: var(--caution);
+      }
+
+      .context-grid,
+      .decision-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin: 24px 0;
+      }
+
+      .context-card,
+      .decision-card {
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .context-card h3,
+      .decision-card h3 {
+        margin: 0 0 10px;
+        font-size: 1.05rem;
+      }
+
+      .context-card p,
+      .decision-card p {
+        font-size: 0.91rem;
+      }
+
+      .table-scroll {
+        max-width: 100%;
+        margin: 24px 0 16px;
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.87rem;
+        line-height: 1.55;
+      }
+
+      caption {
+        padding-bottom: 12px;
+        color: var(--muted);
+        text-align: left;
+        font-size: 0.8rem;
+      }
+
+      th,
+      td {
+        padding: 15px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      thead th {
+        color: var(--ink);
+        background: #f1f5f3;
+        font-size: 0.77rem;
+        font-weight: 750;
+      }
+
+      tbody th {
+        width: 23%;
+        font-weight: 650;
+      }
+
+      .note,
+      .source-note {
+        color: var(--muted);
+        font-size: 0.82rem;
+        line-height: 1.6;
+      }
+
+      .source-note {
+        margin-top: 18px;
+      }
+
+      figure {
+        margin: 26px 0;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #f8faf9;
+        list-style: none;
+      }
+
+      .flow li {
+        position: relative;
+        margin: 0;
+        padding: 16px 12px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--paper);
+        font-size: 0.77rem;
+        line-height: 1.5;
+      }
+
+      .flow li + li::before {
+        position: absolute;
+        top: 45%;
+        left: -13px;
+        color: var(--accent);
+        content: "→";
+        font-weight: 750;
+      }
+
+      .flow strong {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--accent);
+        font-size: 0.84rem;
+      }
+
+      figcaption {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .sequence {
+        padding-left: 1.6em;
+      }
+
+      .sequence li {
+        padding-left: 0.3em;
+      }
+
+      .sequence li::marker {
+        color: var(--accent);
+        font-weight: 750;
+      }
+
+      .references {
+        columns: 2;
+        column-gap: 30px;
+        padding-left: 1.3em;
+        font-size: 0.81rem;
+      }
+
+      .references li {
+        margin: 0 0 14px;
+        break-inside: avoid;
+      }
+
+      .references span {
+        display: block;
+        color: var(--muted);
+      }
+
+      footer {
+        margin-top: 32px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.77rem;
+      }
+
+      @media (max-width: 1260px) {
+        .hero,
+        .layout {
+          margin-right: 30px;
+          margin-left: 30px;
+        }
+
+        .layout {
+          grid-template-columns: 155px minmax(0, 1fr);
+          gap: 24px;
+        }
+      }
+
+      @media (max-width: 1000px) {
+        .layout {
+          display: block;
+        }
+
+        .contents {
+          position: static;
+          margin-bottom: 22px;
+        }
+
+        .contents ol {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0 22px;
+        }
+
+        .contents li + li {
+          margin-top: 0;
+        }
+      }
+
+      @media (max-width: 600px) {
+        body {
+          font-size: 15px;
+        }
+
+        .masthead {
+          padding: 20px;
+        }
+
+        .masthead span {
+          display: none;
+        }
+
+        .hero,
+        .layout {
+          margin-right: 14px;
+          margin-left: 14px;
+        }
+
+        .hero {
+          padding: 32px 24px;
+        }
+
+        .hero-deck {
+          font-size: 1.05rem;
+        }
+
+        h2 {
+          font-size: 1.65rem;
+        }
+
+        main {
+          padding: 30px 22px;
+        }
+
+        .context-grid,
+        .decision-grid,
+        .flow {
+          grid-template-columns: 1fr;
+        }
+
+        .flow li + li::before {
+          top: -15px;
+          left: 50%;
+          content: "↓";
+        }
+
+        .callout {
+          padding: 20px;
+        }
+
+        table {
+          min-width: 550px;
+        }
+
+        .references {
+          columns: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+
+      @page {
+        size: A4;
+        margin: 17mm 16mm;
+      }
+
+      @media print {
+        body {
+          background: white;
+          font-size: 10pt;
+          line-height: 1.5;
+        }
+
+        .masthead,
+        .contents,
+        .skip-link {
+          display: none;
+        }
+
+        .hero,
+        .layout,
+        main {
+          display: block;
+          max-width: none;
+          margin: 0;
+          padding: 0;
+          border: 0;
+          border-radius: 0;
+        }
+
+        .hero {
+          margin-bottom: 24pt;
+          padding-top: 16pt;
+          border-top: 4pt solid var(--accent);
+        }
+
+        h1 {
+          font-size: 33pt;
+        }
+
+        h2 {
+          font-size: 21pt;
+        }
+
+        h3 {
+          font-size: 13pt;
+        }
+
+        h1,
+        h2,
+        h3,
+        .section-number {
+          break-after: avoid;
+        }
+
+        .hero-deck,
+        .lead {
+          font-size: 12pt;
+        }
+
+        section + section {
+          margin-top: 24pt;
+          padding-top: 20pt;
+        }
+
+        .callout,
+        .context-card,
+        .decision-card,
+        figure,
+        tr {
+          break-inside: avoid;
+        }
+
+        .context-grid,
+        .decision-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          padding: 12pt;
+        }
+
+        .flow li + li::before {
+          top: 45%;
+          left: -13px;
+          content: "→";
+        }
+
+        .table-scroll {
+          overflow: visible;
+        }
+
+        table {
+          min-width: 0;
+          font-size: 9pt;
+        }
+
+        th,
+        td {
+          padding: 9pt 8pt;
+        }
+
+        thead {
+          display: table-header-group;
+        }
+
+        .references {
+          columns: 1;
+        }
+
+        .references a::after {
+          display: block;
+          margin-top: 3pt;
+          color: var(--muted);
+          content: attr(href);
+          font-size: 7pt;
+          overflow-wrap: anywhere;
+        }
+
+        p,
+        li {
+          orphans: 3;
+          widows: 3;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#assessment">Skip to the assessment</a>
+
+    <div class="masthead">
+      <div><strong>Public Service Agency</strong><span> / Moodle platform assessment</span></div>
+      <button class="print-button" type="button" id="print-report" hidden>Print / save PDF</button>
+    </div>
+
+    <header class="hero">
+      <div class="eyebrow">Decision brief · The alternative to replatforming</div>
+      <h1>Keep the architecture.<br>Make it supportable.</h1>
+      <p class="hero-deck">
+        A focused assessment of keeping <code>moodle-nginx</code> running securely,
+        replacing unsupported Bitnami images, and restoring reliable, frequent deployments.
+      </p>
+      <div class="hero-meta">
+        <span>Prepared <time datetime="2026-10-29">29 October 2026</time></span>
+        <span>Planning window: six weeks</span>
+        <span>Status: hypothetical alternative; implementation unproven</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="contents" aria-label="Report contents">
+        <span class="contents-label">In this report</span>
+        <ol>
+          <li><a href="#assessment">01 / Judgment</a></li>
+          <li><a href="#evidence">02 / What was found</a></li>
+          <li><a href="#deployment">03 / Deployment approach</a></li>
+          <li><a href="#releases">04 / Reliable app releases</a></li>
+          <li><a href="#bitnami">05 / Replacing Bitnami</a></li>
+          <li><a href="#security">06 / Keeping Moodle current</a></li>
+          <li><a href="#decision">07 / Decision criteria</a></li>
+          <li><a href="#sources">08 / Evidence and sources</a></li>
+        </ol>
+      </nav>
+
+      <main id="report">
+        <section id="assessment" aria-labelledby="assessment-title">
+          <span class="section-number">01 / Judgment</span>
+          <h2 id="assessment-title">Stabilization is a credible bridge.</h2>
+          <p class="lead">
+            The existing architecture can plausibly be retained while fixing deployment and
+            replacing unsupported containers. That could mean less functional change and
+            less migration risk than the proposed replatform. It still requires meaningful
+            engineering, particularly around Galera packaging and recovery.
+          </p>
+          <div class="callout">
+            <p class="callout-title">Recommended approach if the migration is paused</p>
+            <p>
+              Keep Nginx, PHP-FPM, MariaDB Galera, Redis/Sentinel, and the existing Moodle
+              storage model. Move release execution inside the cluster, separate application
+              releases from infrastructure maintenance, and replace legacy images with
+              maintained packaging. Prove the deployment path and Galera replacement in
+              a short, bounded evaluation before committing the remaining six-week window.
+            </p>
+          </div>
+          <div class="context-grid">
+            <div class="context-card">
+              <h3>The capacity constraint</h3>
+              <p>
+                One person has six weeks of protected time and substantial AI assistance,
+                with little practical budget for Warren or another engineer. Recoverability
+                and understandable operations matter as much as successful installation.
+              </p>
+            </div>
+            <div class="context-card">
+              <h3>The likely destination</h3>
+              <p>
+                Vendor-hosted and operated Moodle Workplace is likely in six to eight
+                months, but remains unconfirmed. A modest bridge is attractive; an
+                unsupported platform with a hoped-for expiry date is not a durable plan.
+              </p>
+            </div>
+          </div>
+          <p>
+            The strongest argument for the replatform remains ownership: the new design
+            makes more sense to the person who must operate it. Keeping the current design
+            only wins if the remaining custom code and recovery procedures become manageable
+            without depending on Warren. A working prototype alone cannot settle that question
+            for either option.
+          </p>
+        </section>
+
+        <section id="evidence" aria-labelledby="evidence-title">
+          <span class="section-number">02 / What was found</span>
+          <h2 id="evidence-title">The problems are concrete and separable.</h2>
+          <div class="table-scroll" role="region" aria-label="Production observations" tabindex="0">
+            <table>
+              <caption>Production observations from the preceding assessment, after OpenShift login was renewed.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Component</th>
+                  <th scope="col">Observed</th>
+                  <th scope="col">Why it matters</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">MariaDB Galera</th>
+                  <td>Five pods using Bitnami Legacy. Server binary: <strong>10.6.20</strong>.</td>
+                  <td>MariaDB 10.6 community maintenance ended on 6 July 2026. Both packaging and the database version need attention.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Redis / Sentinel</th>
+                  <td>Five Redis pods using Bitnami Legacy Redis and Sentinel images tagged <strong>8.0.2</strong>; Redis binary confirmed 8.0.2.</td>
+                  <td>Mirroring these archived images preserves availability, but does not provide ongoing security updates.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Moodle / PHP</th>
+                  <td><strong>Moodle 4.5.11+</strong>, build 20260525; <strong>PHP 8.3.36</strong>.</td>
+                  <td>A dependable release path is needed to deliver current Moodle security fixes and runtime updates.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Shared Argo CD</th>
+                  <td>No <code>GitOpsTeam</code> resource was returned in <code>950003-tools</code>.</td>
+                  <td>The platform offers a deployment service, but onboarding and a release design still need to be completed.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="source-note">
+            Maintenance status: <a href="https://mariadb.org/about/#maintenance-policy">MariaDB maintenance policy</a>.
+            Archive status: <a href="https://github.com/bitnami/containers/issues/83267">Bitnami catalog changes</a>.
+          </p>
+          <h3>The deployment workflow does more than release Moodle.</h3>
+          <p>
+            The inspected workflow deploys backups, Galera, and Redis/Sentinel before
+            running the application deployment. The application scripts then perform many
+            additional API operations, including scaling workloads, updating configuration,
+            and creating code-copy and upgrade jobs. This couples frequent application
+            updates to infrastructure management.
+          </p>
+          <p>
+            Incident records document GitHub runner connection failures while workstation
+            access remained usable. They also show why delete-then-create operations are
+            fragile: a failed second request can leave an object missing. Existing
+            deployment-safety fixes should be checked for promotion and reused.
+          </p>
+          <div class="callout caution">
+            <p class="callout-title">What the “50 connections in 50 seconds” evidence establishes</p>
+            <p>
+              The reported restriction and observed failures are a real deployment constraint.
+              The exact firewall accounting and its applicability to internal traffic were
+              not independently established. One <code>oc</code> command is not necessarily
+              one connection, so adding a fixed delay between commands is not a demonstrated
+              long-term solution.
+            </p>
+          </div>
+          <p class="source-note">
+            Source: <a href="https://github.com/bcgov/moodle-nginx/blob/c167656ada8ff45fbb747da8a8b8f5fb91e02a31/.github/workflows/deploy.yml#L220">inspected deployment workflow</a>.
+            Repository observations are distinct from the live production version checks;
+            the inspected branch was not established as the exact production deployment revision.
+          </p>
+        </section>
+
+        <section id="deployment" aria-labelledby="deployment-title">
+          <span class="section-number">03 / Deployment approach</span>
+          <h2 id="deployment-title">Run releases inside OpenShift.</h2>
+          <p>
+            Use GitHub Actions to build, test, scan, and publish a versioned release, then
+            update its GitOps manifest. Let the platform’s shared Argo CD create a release
+            Job inside the cluster. That Job runs the application release steps using the
+            internal Kubernetes API and a narrowly scoped service account.
+          </p>
+          <figure aria-labelledby="flow-caption">
+            <ol class="flow">
+              <li><strong>1. GitHub Actions</strong>Build, test, scan, and identify the exact release.</li>
+              <li><strong>2. Artifactory + Git</strong>Publish pinned images and record the desired release.</li>
+              <li><strong>3. Shared Argo CD</strong>Read the manifest and create its release Job.</li>
+              <li><strong>4. Internal Job</strong>Coordinate maintenance, upgrade, and health checks.</li>
+            </ol>
+            <figcaption id="flow-caption">
+              Proposed delivery path. Routine release orchestration moves away from the
+              GitHub runner’s connection to the public OpenShift API; the application
+              serving architecture remains in place.
+            </figcaption>
+          </figure>
+          <p>
+            The platform explicitly recommends GitHub Actions for builds with Argo CD for
+            deployment for teams with limited pipeline experience. Shared Argo CD is available
+            on Silver through a <code>GitOpsTeam</code> resource in the tools namespace.
+            This does not require a new project set solely to solve deployment.
+            <a href="https://github.com/bcgov/platform-developer-docs/blob/573c44fda31dcd40253430ca763dbbb14dbc90d4/src/docs/automation-and-resiliency/cicd-pipeline-templates-for-private-cloud-teams.md">Platform pipeline guidance</a>;
+            <a href="https://github.com/bcgov/platform-developer-docs/blob/573c44fda31dcd40253430ca763dbbb14dbc90d4/src/docs/automation-and-resiliency/argo-cd-usage.md">Argo CD onboarding</a>.
+          </p>
+          <h3>Keep the first adoption small.</h3>
+          <ul>
+            <li>Initially give Argo CD ownership of release Jobs and their supporting resources. Keep existing database and Redis resources outside automatic reconciliation and pruning.</li>
+            <li>Use a unique release identity, one active release at a time, and a durable success record. Prevent resynchronization or Job cleanup from unexpectedly rerunning an upgrade.</li>
+            <li>Ensure automatic reconciliation cannot fight temporary maintenance-mode scaling. Make failed releases remain visibly failed and keep the application in maintenance when needed.</li>
+            <li>Test the internal API path under repeated releases. This changes the network path; it does not prove that every API limit disappears.</li>
+          </ul>
+          <p>
+            A workstation-triggered internal Job is a reasonable temporary bridge while
+            onboarding Argo CD. An in-cluster GitHub runner is another possible approach,
+            but creates a runner service that this team must secure and maintain. Shared
+            platform tooling is the stronger default for the available capacity.
+          </p>
+        </section>
+
+        <section id="releases" aria-labelledby="releases-title">
+          <span class="section-number">04 / Reliable application releases</span>
+          <h2 id="releases-title">Make each release explicit and repeatable.</h2>
+          <p>
+            Create a small application-release path independent of Galera, Redis, and backup
+            installation. Keep infrastructure changes in a separate, deliberate maintenance
+            workflow. A routine Moodle or plugin update should follow a documented sequence:
+          </p>
+          <ol class="sequence">
+            <li><strong>Prepare.</strong> Resolve exact core and plugin revisions, pin image digests, stage and verify the release, and establish a usable recovery point.</li>
+            <li><strong>Quiesce.</strong> Enable maintenance mode and stop cron and other application writers before changing shared code or the schema.</li>
+            <li><strong>Install.</strong> Copy the verified release using the existing storage model, retaining a recoverable previous code version.</li>
+            <li><strong>Upgrade and check.</strong> Run the required Moodle upgrade and cache operations, then verify application health and representative workflows.</li>
+            <li><strong>Resume.</strong> Restore the intended replicas and background work, leave maintenance mode after successful checks, and record completion against that release identity.</li>
+          </ol>
+          <div class="table-scroll" role="region" aria-label="Release logic corrections" tabindex="0">
+            <table>
+              <caption>Specific corrections identified in the inspected scripts.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Current logic</th>
+                  <th scope="col">Problem</th>
+                  <th scope="col">Replacement</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Moodle version + file count</th>
+                  <td>Changed plugin or theme contents can be missed when the version and number of files stay the same.</td>
+                  <td>An exact release identifier covering core, plugins, theme, and image digests.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Time-based upgrade gate</th>
+                  <td>The configurable 24-hour gate uses the modification time of <code>index.php</code>, rather than a record of a successful upgrade.</td>
+                  <td>Explicit release state that permits several different releases in one day and handles retries deliberately.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Delete shared code, then copy</th>
+                  <td>A copy failure can leave an incomplete application tree.</td>
+                  <td>Verify staged code first, quiesce writers, and keep a tested path back to the previous code.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Automatic plugin purge and collation work</th>
+                  <td>Uninstalling missing plugins and converting collation add unrelated, potentially destructive work to ordinary releases.</td>
+                  <td>Separate, reviewed maintenance actions when actually required.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="source-note">
+            Sources:
+            <a href="https://github.com/bcgov/moodle-nginx/blob/c167656ada8ff45fbb747da8a8b8f5fb91e02a31/openshift/scripts/migrate-build-files.sh#L93">code-copy logic</a>,
+            <a href="https://github.com/bcgov/moodle-nginx/blob/c167656ada8ff45fbb747da8a8b8f5fb91e02a31/openshift/scripts/utils/openshift.sh#L1906">timestamp check</a>, and
+            <a href="https://github.com/bcgov/moodle-nginx/blob/c167656ada8ff45fbb747da8a8b8f5fb91e02a31/openshift/scripts/moodle-upgrade.sh#L57">upgrade script</a>.
+          </p>
+          <div class="callout caution">
+            <p class="callout-title">Rollback means a consistent application recovery</p>
+            <p>
+              Reverting Git or selecting an old image does not undo a Moodle database
+              upgrade. Recovery must account for the database, Moodle files, and code
+              together. Argo CD can coordinate Kubernetes resources; it does not supply
+              application-aware database rollback.
+              <a href="https://docs.moodle.org/405/en/Upgrading">Moodle upgrade guidance</a>.
+            </p>
+          </div>
+        </section>
+
+        <section id="bitnami" aria-labelledby="bitnami-title">
+          <span class="section-number">05 / Replacing Bitnami</span>
+          <h2 id="bitnami-title">Keep Galera; resolve who maintains its packaging.</h2>
+          <p>
+            Bitnami Legacy is an archive, not an ongoing patch channel. An Artifactory mirror
+            makes those images available but does not make them maintained. Updating an
+            operating-system layer alone also does not update the bundled database or Redis
+            binaries. MariaDB Galera itself remains available; the immediate issue is
+            obtaining maintained, compatible packaging and moving off MariaDB 10.6.
+            <a href="https://github.com/bitnami/containers/issues/83267">Bitnami notice</a>;
+            <a href="https://mariadb.com/resources/blog/galera-cluster-remains-an-integral-part-of-mariadb-server/">MariaDB clarification</a>.
+          </p>
+          <div class="table-scroll" role="region" aria-label="Bitnami replacement options" tabindex="0">
+            <table>
+              <caption>The practical packaging choices.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Option</th>
+                  <th scope="col">Benefit</th>
+                  <th scope="col">Assessment</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Maintained Bitnami Secure Images</th>
+                  <td>Potentially the least change to familiar image conventions.</td>
+                  <td>Worth checking for an existing entitlement or affordable access. Paid access, compatibility, and changed base-image behavior must be confirmed; do not assume a free or drop-in replacement.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Maintained upstream packages / suitable image</th>
+                  <td>Retains MariaDB Galera without depending on the archived Bitnami distribution.</td>
+                  <td>The realistic budget-constrained path. Prove a suitable maintained image, or build a small image from official packages. The team owns any packaging and startup integration it creates.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Keep mirrored Legacy images</th>
+                  <td>Very little immediate implementation work.</td>
+                  <td>A temporary continuity measure only. It does not meet the objective of maintained components and reasonable ongoing security.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="source-note">
+            Sources:
+            <a href="https://github.com/bitnami/containers/blob/main/bitnami/mariadb-galera/README.md">current Bitnami Galera distribution</a> and
+            <a href="https://mariadb.com/docs/galera-cluster/galera-management/installation-and-deployment/getting-started-with-mariadb-galera-cluster">official Galera installation guidance</a>.
+          </p>
+          <h3>Use MariaDB 10.11 as a conservative candidate.</h3>
+          <p>
+            MariaDB 10.11 is a plausible next target and has community maintenance through
+            16 February 2028. Validate it against the actual Moodle installation, plugins,
+            custom database objects, backups, and configuration. Its maintenance horizon
+            provides some room if Workplace is delayed.
+            <a href="https://mariadb.org/about/#maintenance-policy">MariaDB maintenance policy</a>.
+          </p>
+          <p>
+            This is the hardest part of the stabilization alternative. Existing scripts
+            depend on Bitnami paths, entrypoints, health checks, and Galera bootstrap and
+            shutdown behavior. Replacing only the image reference is not enough. A replacement
+            must work with OpenShift permissions, persistent storage, cluster formation,
+            node rejoin, state transfer, and recovery after a complete shutdown.
+          </p>
+          <p>
+            Prefer a rehearsed maintenance window and a tested restore into separate storage
+            over an improvised image swap against the only production data. MariaDB documents
+            a 10.6-to-10.11 Galera rolling upgrade with conditions: incremental state transfer
+            can work, but snapshot state transfer during that mixed-version upgrade does not.
+            Zero downtime should not be assumed.
+            <a href="https://mariadb.com/docs/galera-cluster/galera-management/upgrading-galera-cluster/upgrading-from-mariadb-10-6-to-mariadb-10-11-with-galeracluster">Galera upgrade procedure and restrictions</a>.
+          </p>
+          <h3>Keep Redis and Sentinel for this bridge.</h3>
+          <p>
+            Move them to maintained Redis packaging while preserving the present topology
+            and client integration initially. Sentinel is part of Redis and can run using
+            <code>redis-server</code> in Sentinel mode; a Bitnami-specific Sentinel image is
+            not essential. Adapt configuration paths and permissions, then test discovery,
+            failover, sessions, and the existing proxy.
+            <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/">Redis Sentinel documentation</a>.
+          </p>
+          <p>
+            The custom Redis proxy remains a support obligation. Its inspected build
+            configuration references Go 1.12 and <code>sentinel_tunnel</code>. Audit and
+            update that build and its dependencies; do not infer the running binary’s
+            toolchain solely from the repository default.
+          </p>
+        </section>
+
+        <section id="security" aria-labelledby="security-title">
+          <span class="section-number">06 / Keeping Moodle current</span>
+          <h2 id="security-title">A maintained bridge needs a patch routine.</h2>
+          <p>
+            Keep Moodle on current 4.5 LTS security releases while the Workplace decision
+            develops. That branch has security support through 4 October 2027. Reassess the
+            plan if the vendor move slips beyond that window. Update PHP, Nginx, Redis,
+            database and backup images, and the proxy dependencies as part of the same
+            maintenance inventory.
+            <a href="https://moodledev.io/docs/4.5">Moodle 4.5 support dates</a>.
+          </p>
+          <p>
+            Build from known revisions, scan the resulting images, promote the same tested
+            digests, and record what reached each environment. Preserve existing tuning
+            initially and repeat representative performance tests after database, cache,
+            or runtime changes. Retaining the architecture reduces what changes; it does
+            not make performance testing unnecessary.
+          </p>
+          <p>
+            The acceptance target is a release process that can safely handle daily updates,
+            including multiple releases on one day. Existing backups are useful evidence,
+            but the changed system still needs a demonstrated recovery of database,
+            Moodle files, and application code using instructions the operator can follow.
+          </p>
+        </section>
+
+        <section id="decision" aria-labelledby="decision-title">
+          <span class="section-number">07 / Decision criteria</span>
+          <h2 id="decision-title">Spend the first week resolving the hard uncertainty.</h2>
+          <p>
+            Treat one week as a proposed evaluation limit, not a promise that all engineering
+            will fit inside it. Two technical proofs, plus an operator check, should determine
+            whether stabilization deserves the remaining time.
+          </p>
+          <div class="table-scroll" role="region" aria-label="Stabilization decision criteria" tabindex="0">
+            <table>
+              <caption>Evidence to collect before choosing the bridge.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Proof</th>
+                  <th scope="col">What success looks like</th>
+                  <th scope="col">What would change the recommendation</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Internal application release</th>
+                  <td>Two distinct releases on the same day succeed through the internal Job. A controlled failure stops safely, can be diagnosed, and can be recovered without losing configuration.</td>
+                  <td>The network restriction still blocks this path, or release logic remains too fragile to simplify within the available time.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Maintained Galera replacement</th>
+                  <td>A production-data clone works on the proposed supported version and packaging. Backup/restore, node rejoin, and full-cluster restart are demonstrated.</td>
+                  <td>Compatibility, startup, recovery, or packaging requires open-ended specialist engineering or unaffordable support.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Operator independence</th>
+                  <td>The user can follow a concise runbook to release, find the failure, and restore service. Procedures have been exercised rather than merely written.</td>
+                  <td>The bridge still depends on Warren to diagnose normal failure modes, or remains substantially harder for the user to understand than the replacement.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Use a non-production environment and isolated database storage for these proofs.
+            A realistic restore or performance test may need temporary quota. Passing the
+            initial proofs would justify continuing with patching, recovery rehearsal,
+            representative load testing, and a controlled production rollout; it would not
+            itself mean production readiness.
+          </p>
+          <div class="decision-grid">
+            <div class="decision-card">
+              <h3>When staying makes more sense</h3>
+              <p>
+                Internal releases become reliable, maintained Galera packaging proves
+                straightforward, and the user can recover the system. With a likely vendor
+                move in months, preserving the tuned architecture then becomes a strong,
+                potentially lower-risk choice.
+              </p>
+            </div>
+            <div class="decision-card">
+              <h3>When replatforming still makes more sense</h3>
+              <p>
+                Keeping Galera and the custom proxy requires substantial new maintenance
+                code or expertise the team cannot afford. The clearer replacement design
+                may justify its migration cost, provided it passes its own data migration,
+                performance, and recovery tests.
+              </p>
+            </div>
+          </div>
+          <div class="callout">
+            <p class="callout-title">Overall assessment</p>
+            <p>
+              The deployment restriction alone does not require replacing the application
+              architecture. Bitnami’s changes require a maintained distribution strategy,
+              but do not inherently require changing database engines. Stabilization is a
+              serious alternative—not an effortless retreat. Choose it if the early proofs
+              show that it leaves this particular operator with a system they can maintain
+              and recover within the available budget and time.
+            </p>
+          </div>
+        </section>
+
+        <section id="sources" aria-labelledby="sources-title">
+          <span class="section-number">08 / Evidence and sources</span>
+          <h2 id="sources-title">Basis and limits of the assessment</h2>
+          <p class="note">
+            This report formats the preceding assessment. Production versions and resource
+            observations come from that review’s read-only OpenShift checks; they are not
+            a newly collected inventory for the report date. The proposed release design,
+            packaging changes, and decision criteria are engineering recommendations, not
+            completed implementations or guarantees of formal platform compliance.
+          </p>
+          <p class="note">
+            Repository inspection used <code>moodle-nginx</code> branch
+            <code>safety/db-credential-rotation-2026-09-02</code> at
+            <code>c167656ada8ff45fbb747da8a8b8f5fb91e02a31</code>, with existing local changes.
+            The workflow and release-script links above identify the inspected committed
+            source. Platform guidance was read from checkout
+            <code>573c44fda31dcd40253430ca763dbbb14dbc90d4</code>. Local incident records
+            supplied the GitHub-versus-workstation connectivity observations; the precise
+            firewall mechanism remains to be confirmed.
+          </p>
+          <ol class="references">
+            <li>
+              <a href="https://github.com/bcgov/platform-developer-docs/blob/573c44fda31dcd40253430ca763dbbb14dbc90d4/src/docs/automation-and-resiliency/cicd-pipeline-templates-for-private-cloud-teams.md">BC Government pipeline guidance</a>
+              <span>GitHub Actions builds and shared Argo CD deployment.</span>
+            </li>
+            <li>
+              <a href="https://github.com/bcgov/platform-developer-docs/blob/573c44fda31dcd40253430ca763dbbb14dbc90d4/src/docs/automation-and-resiliency/argo-cd-usage.md">BC Government Argo CD usage</a>
+              <span>Project onboarding and GitOpsTeam resources.</span>
+            </li>
+            <li>
+              <a href="https://github.com/bitnami/containers/issues/83267">Bitnami catalog changes</a>
+              <span>Legacy archive and maintenance changes.</span>
+            </li>
+            <li>
+              <a href="https://github.com/bitnami/containers/blob/main/bitnami/mariadb-galera/README.md">Bitnami MariaDB Galera image</a>
+              <span>Current distribution and image conventions.</span>
+            </li>
+            <li>
+              <a href="https://mariadb.org/about/#maintenance-policy">MariaDB maintenance policy</a>
+              <span>10.6 end of maintenance and the 10.11 support horizon.</span>
+            </li>
+            <li>
+              <a href="https://mariadb.com/docs/galera-cluster/galera-management/installation-and-deployment/getting-started-with-mariadb-galera-cluster">MariaDB Galera installation</a>
+              <span>Upstream components and cluster configuration.</span>
+            </li>
+            <li>
+              <a href="https://mariadb.com/docs/galera-cluster/galera-management/upgrading-galera-cluster/upgrading-from-mariadb-10-6-to-mariadb-10-11-with-galeracluster">Galera: MariaDB 10.6 to 10.11</a>
+              <span>Upgrade sequencing and state-transfer restrictions.</span>
+            </li>
+            <li>
+              <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/">Redis Sentinel documentation</a>
+              <span>Sentinel operation and configuration requirements.</span>
+            </li>
+            <li>
+              <a href="https://docs.moodle.org/405/en/Upgrading">Moodle 4.5 upgrade guidance</a>
+              <span>Testing and backups of code, files, and database.</span>
+            </li>
+            <li>
+              <a href="https://moodledev.io/docs/4.5">Moodle 4.5 release and support information</a>
+              <span>LTS security maintenance dates.</span>
+            </li>
+          </ol>
+          <footer>
+            Moodle platform assessment · Public Service Agency · 29 October 2026<br>
+            Standalone HTML report. Styling and print layout are included; an internet
+            connection is needed only to open external references.
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const printButton = document.getElementById("print-report");
+
+      printButton.hidden = false;
+      printButton.addEventListener("click", () => {
+        window.print();
+      });
+    </script>
+  </body>
+</html>
