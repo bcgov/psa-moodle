@@ -84,7 +84,7 @@ only prod's database content and search index. These facts from it change this p
 | The weekly legacy deploy comes from `scheduled-rebuild.yml`, not `build.yml`. `build.yml` has no schedule. `scheduled-rebuild.yml` was **disabled** on 2026-11-18. | E4 names both workflows; trigger list corrected | §3 E4, §5.5, §9 |
 | **26 columns in prod are binary-typed** (`longblob`/`varbinary`) where Moodle defines text, most likely left over from the 2025 encoding conversion. Every census and comparison must cover binary types. | New §5.2 bullet; schema check expects these differences; `compare-content.sh` normalises binary vs text | §5.2, §8.3, §8.4, §15 |
 | **Prod mojibake is fixed**: 80,726 values, 76,644 of them in those binary-typed columns. There's a new post-fix baseline dump, and three explained exceptions remain. | Phase 1 uses the new baseline; acceptance expects the exceptions | §5.12, §15 |
-| Test's mojibake count (51) came from a text-only census | Being re-checked over binary-typed columns | §5.12 |
+| Test's mojibake count (51) came from a text-only census | Re-checked over all column types: unchanged; test has no binary-typed text columns | §5.12 |
 | Maintenance behaviour verified live in prod | Details added | §5.10, §13.1 |
 | `search_simpledb_index` is derived data, produced through `html_to_text()` (non-breaking spaces become spaces and headings are upper-cased) | Rebuilt after a copy, not compared or converted | §8.3, §15 |
 | Owner decisions: test stays in web maintenance until next week or its replatform; Q18 deferred to E4 | Recorded | §6, §16 |
@@ -205,8 +205,9 @@ scaled to 0; §13.4 is the sequence for bringing them back.
 
   Consequences: `check_database_schema.php` reports them; binary columns compare byte-wise and case-sensitively in
   MariaDB; any census or content comparison must include binary types (the 2026-11-17 census did not, and missed
-  76,644 mojibake values). After the 2026-11-18 fix every value in them is valid UTF-8. Test has not been checked yet
-  (Phase 0, step 0.9). Whether to convert them back to text in legacy is **not** part of this plan; the migration
+  76,644 mojibake values). After the 2026-11-18 fix every value in them is valid UTF-8. **Test does not have this
+  drift:** its only binary-typed columns are the ASCII `sha256hash` fields (checked 2026-11-18 from the test backup;
+  Phase 0 step 0.9 re-verifies live). Whether to convert them back to text in legacy is **not** part of this plan; the migration
   writes them into the new schema's text columns.
 - **Verified backups** are in `~/Moodle/private-backups/`: prod at 2026-11-17T00:20Z and test at 2026-11-17T23:10Z.
 
@@ -352,9 +353,10 @@ Each one needs a decision, recorded in §16.
   - **Phase 1 uses the final post-fix baseline** `950003-prod-moodle-postfix2-20261118T233645Z.sql.gz` (private folder,
     SHA-256 recorded; taken frozen, 719/719 identical to live), or a newer frozen dump at cutover.
 - **Test mojibake:** 51 known values plus one U+FFFD, all in courses that will not be used. The owner decided on 2026-11-18 **not
-  to fix** them. Test's acceptance census expects exactly these. **Caveat:** that count came from a census that skipped
-  binary-typed columns. Test is being re-checked over all column types (2026-11-18); this decision is revisited if it
-  finds more.
+  to fix** them. Test's acceptance census expects exactly these. **Re-checked on 2026-11-18 over all column types**
+  (test backup of 2026-11-17): test has only 2 binary-typed columns (ASCII `sha256hash`), the count is unchanged (51, all
+  one layer, plus one U+FFFD), and no mojibake is hidden behind HTML entities. The stray check's only flag is test's copy
+  of the Vietnamese "Âm" (`hvp_libraries_languages` id 2289).
 
 ## 6. Open questions for the owner
 
@@ -672,7 +674,7 @@ lost work can still be recovered by hand. This is the owner's decision only.
   - `check-filedir` finds no missing files and no SHA-1 mismatches;
   - mojibake census over **text and binary-typed columns**, plus the stray-character check: prod is zero outside the
     excluded tables except the three explained values in §5.12; test matches §5.12 (51 known values plus one U+FFFD,
-    unless the all-types re-check changes that);
+    and the Vietnamese "Âm");
   - the search index is rebuilt on the target (`search/cli/indexer.php --reindex`) and then passes the same census.
 - **Which stack answered:** every check confirms the `X-PSA-Stack` header.
 - **Login:** SSO ("BC Government Login") on the public hostnames and the local admin account.
