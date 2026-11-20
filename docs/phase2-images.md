@@ -23,7 +23,7 @@ The Phase 1 Containerfiles satisfy OpenShift's restricted-v2 SCC out of the box.
 | `chmod -R g+rwX` on writable paths | runtime stages | reassigned UID can still write through group 0 |
 | no `runAsUser` / no `fsGroup` in the chart | `chart/psa-moodle/values.yaml`, deployment templates | let SCC pick |
 | multi-stage build, code only `COPY --from=src` | `Containerfile.php` (and `.web`/`.cron` reference `psa-moodle-php` as `src`) | clones happen once per build cycle, runtime image stays lean |
-| `nginxinc/nginx-unprivileged` (not `nginx`) | `Containerfile.web` | listens on 8080 as UID 101 — no root required, no `setcap` |
+| `nginx/nginx-unprivileged` (not `nginx`; formerly `nginxinc/nginx-unprivileged`, which stopped receiving builds after 1.30.6 / 1.31.7) | `Containerfile.web` | listens on 8080 as UID 101 — no root required, no `setcap`; pinned by digest (1.30.7 since 2026-11-20) |
 | `php-fpm-healthcheck` baked in | `Containerfile.php` | drives liveness/readiness probes via the FPM status endpoint |
 | `allowPrivilegeEscalation: false`, `capabilities: drop: [ALL]` | chart templates | matches SCC defaults |
 
