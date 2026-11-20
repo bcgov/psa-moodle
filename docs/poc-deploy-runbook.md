@@ -35,6 +35,29 @@ runs end-to-end with **no manual SQL, config edits, or NetworkPolicy patches**.
 | PG15 denies CREATE on schema `public` | `databaseInitSQL` grants the moodle role ownership |
 | Moodle "reverse proxy ... accessed directly" (HTTP 500) | `reverseproxy=false` in config.openshift.php |
 
+## Changes made outside Helm (read this before touching the live PoC)
+
+- **The Helm release records for `psa-moodle` in `a58ce1-dev` no longer exist** (found 2026-11-20). The objects still
+  carry Helm labels and annotations (`meta.helm.sh/release-name: psa-moodle`), but `helm list -n a58ce1-dev` is empty and
+  there are no `owner=helm` secrets. So `helm upgrade` fails, and `helm install` would try to adopt the objects and run the
+  database-install Job. Don't do either against this namespace; change the live objects directly, or tear down and
+  reinstall cleanly.
+- **2026-11-20, nginx 1.30.7 (web only).** It fixes the November 2026 nginx advisories (CVE-2026-123007 and others).
+  The web image is built from `Containerfile.web` (now `docker.io/nginx/nginx-unprivileged:1.30.7-alpine-slim`) with the
+  running php image `php-8.3.36-poc5-20261021` as its code source, so the Moodle code tree is identical to before
+  (29,598 files, same hash). It was pushed to the internal registry as `a58ce1-dev/web:nginx-1.30.7-20261120`, then applied
+  with:
+
+  ```sh
+  oc -n a58ce1-dev set image deploy/psa-moodle-web web=image-registry.openshift-image-registry.svc:5000/a58ce1-dev/web:nginx-1.30.7-20261120
+  ```
+
+  This gave Deployment revision 5. The public `/health` now returns `Server: nginx/1.30.7`. Undo:
+  `oc -n a58ce1-dev rollout undo deploy/psa-moodle-web` (revision 4, `web:php-8.3.36-poc5-20261021`, nginx 1.27.5).
+  php and cron still run `php-8.3.36-poc5-20261021`.
+- **The CI pipeline does not deploy here.** `deploy.yml` skips because the `OPENSHIFT_*` secrets are not set, and
+  `build.yml` only verifies builds because `ARTIFACTORY_PASSWORD` is not set. Every change to this PoC has been manual.
+
 ---
 
 ## A. Pre-flight (read-only)

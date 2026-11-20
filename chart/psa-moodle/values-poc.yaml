@@ -28,6 +28,10 @@ image:
   repository: a58ce1-dev
   # PHP 8.3.36 security patch; preserves poc5 Moodle code/config and web contents.
   # Built with Containerfile.runtime-patch on 2026-10-21.
+  # NOTE (2026-11-20): this tag is still live for php and cron, but NOT for web. The live
+  # web Deployment was patched by hand to web:nginx-1.30.7-20261120 (nginx 1.30.7, same Moodle
+  # code) with `oc set image`, because the a58ce1-dev Helm release records no longer exist.
+  # See docs/poc-deploy-runbook.md, "Changes made outside Helm".
   tag: php-8.3.36-poc5-20261021
   pullSecret: ""
 
