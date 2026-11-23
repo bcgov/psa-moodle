@@ -1,14 +1,15 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v0.5 for review, 2026-11-23. Nothing in this runbook has been executed** except Phase 0, which was
+> **Status: DRAFT v0.6 for review, 2026-11-23. Nothing in this runbook has been executed** except Phase 0, which was
 > read-only (2026-11-18).
 > v0.2 answered the first review ([replatform-950003-review.md](replatform-950003-review.md), R1–R12, §0).
 > v0.3 added facts from the 2026-11-18 prod mojibake window (§0.1).
 > v0.4 answered the second review ([replatform-950003-rollback-review.md](replatform-950003-rollback-review.md),
 > RB01–RB14), added the Phase 0 findings ([replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md)) and
 > recorded the owner's decisions D1–D3 and O1–O4 (§0.2).
-> **v0.5 answers the third review** ([replatform-950003-v04-review.md](replatform-950003-v04-review.md), DR01–DR09, plus
-> two procedure points) and corrects stale facts. §0.3 lists every change.
+> v0.5 answered the third review ([replatform-950003-v04-review.md](replatform-950003-v04-review.md), DR01–DR09, §0.3).
+> **v0.6 answers the fourth review** ([replatform-950003-v05-review.md](replatform-950003-v05-review.md), V501–V508) and
+> records the owner's decisions on it. §0.4 lists every change.
 > It supersedes the "request a new project set" direction in `README.md` (Current direction) and
 > `docs/quota-request.md`. The plan is to replatform **inside** the existing 950003 namespaces on Silver, using their existing
 > quota plus one temporary increase for prod, then release ad4087 (Gold) and retire a58ce1.
@@ -31,8 +32,8 @@ The service owner is cautious and wants a plan that cannot strand them.
 
 **Please try to break this promise.**
 
-**If you reviewed v0.4,** check first that each of DR01–DR09 and the two procedure points is resolved by the sections listed
-in §0.3, and that the fixes haven't opened new gaps. (Reviewers of v0.3: RB01–RB14 are mapped in §0.2.)
+**If you reviewed v0.5,** check first that each of V501–V508 is resolved by the sections listed in §0.4, and that the fixes
+haven't opened new gaps. (Earlier findings: DR01–DR09 in §0.3, RB01–RB14 in §0.2.)
 
 Look especially for:
 
@@ -102,7 +103,7 @@ v0.4 replaced two of these v0.2 designs: R4's `RENAME TABLE` swap (now D3) and R
 | **D2** | **Before the commit point: a firm, lossless rollback. After it: going back is a second migration** with its own window, checks, commit point and ELM reconciliation. The bail-out windows are **3 business days for test and 5 for prod**. | Promise, §4, §14, Q9 |
 | **D3** | **Return data by loading `moodle_bailout`, then switching legacy `config.php` to it** (legacy php and cron restart). The frozen `moodle` database is never written. No `RENAME TABLE`. | S1 E5, S8, §8.3, §14 |
 | **O1** | **Copy only files referenced by the `files` table** (prod 2.93 GiB of 8.4 GiB on disk). Legacy keeps every file until decommission; the unreferenced set is archived privately before decommission and investigated only if someone reports missing content. | §5.3, §8.3, §12 |
-| **O2** | **GitHub sync's nightly task: leave it in legacy.** The outbound guard disables it on every copy. Phase 1 decides whether to uninstall the plugin in test and prod together. | §5.9, §8.2 |
+| **O2** | ~~GitHub sync's nightly task: leave it in legacy.~~ *Superseded on 2026-11-23 by G1: uninstall the plugin (§0.4).* | §5.9, §8.2 |
 | **O3** | **Test's automated course backups: checked read-only on 2026-11-23.** They have failed since 2026-05-20 because the destination directory doesn't exist. Leave the fix to the replatform; the course developers are told (Q21). | §5.12, §10 |
 | **O4** | **Drop the prod trigger `trg_log_completion_criteria_delete` on the new stack.** It is not recreated; its log history stays in the archived dumps. | §5.2, §8.3 |
 
@@ -153,6 +154,29 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
 | Off-site timing | The off-site copy for S12 is the owner's copy on the encrypted laptop disk, made and checksum-verified inside the window (owner decision) | S12, §13.3, §14.8, Q11 |
 | Stale facts | Test's health monitor is manual (2026-11-23); legacy test and prod web run `web-security-patch` images by digest; test may stay in web maintenance with no deadline | §5.5, §5.10, §6, §16 |
 
+## 0.4 Changes in v0.6 (fourth review, 2026-11-23)
+
+### Owner decisions on the fourth review
+| ID | Decision | Where |
+|---|---|---|
+| G1 | **Uninstall `local_githubsync`** from legacy test and prod, with Moodle's own CLI, in the same week, before any coexistence starts (new exception E7). The new image is built without it, so the code stays identical on both sides (S7). Until E7 is done in an environment, copies of its data delete the plugin's configuration rows. | S1 E7, S4, §5.9, §8.2, §8.3, §9 |
+| G2 | Reviewer boundary: Routes restricted from creation, and in the pre-commit profile `$CFG->siteadmins` is forced to the named reviewers (default: the owner). The owner considers a shared-address bypass very unlikely; this inexpensive control closes it anyway. | S15, §8.1, §8.2 |
+| G3 | **Three Postgres instances in prod** (platform guidance). Test runs **two** during its parallel run so that it needs no quota request, and moves to three after legacy test is decommissioned. **No restore drill in prod or test** during the parallel run; restore rehearsals run in dev (C7). Quota draft: **4 → 7 cores, 96 → 144 GiB**. | §5.4, §8.1, §11.1 |
+| G4 | **Moodledata backups:** daily `rsync --link-dest` snapshots on `netapp-file-backup`, 7 retained, 10 GiB, alert at 80% | C8, §8.1 |
+
+### Findings
+| Finding | What changed | Where |
+|---|---|---|
+| V501 Helm can undo an imperative scale-down | The writer fence is a **values profile** (`migration.state=fenced`): web, php and cron at 0 replicas, HPAs off, application CronJobs suspended, outbound off. Every upgrade during a fence uses it, and every upgrade is followed by the same verification. The imperative scale-down is only the fallback when Helm or the cluster API misbehaves. | S13, §8.1, §8.3, §13.4, §14.1 |
+| V502 the fence's SQL check makes a database-down rollback impossible | Fence verification is **infrastructure-only**, with no SQL. The `pg_stat_activity` check is required **only** before a return's extraction, and failing it stops the return. | S13, §8.3, §13.4, §14.1 |
+| V503 a blank token still sends HTTP requests to GitHub | The plugin is removed (G1, E7). Until then, copies delete its configuration rows. Acceptance checks the plugin is absent and that no request reaches GitHub. | S4, §8.2, §8.4, §15 |
+| V504 abandoning a return could expose the frozen database | The abandon sequence **re-fences legacy first** (Routes to the static page, CLI maintenance, drain) and only then switches the database back. It verifies that the frozen `moodle` is unchanged. | §8.3, §14 |
+| V505 restriction applied late; an IP is not an identity | The chart renders the Route restriction **at creation**, verified before any data is loaded, and site-admin rights are limited to reviewers (G2). A non-reviewer admin from an allowed address must be denied in rehearsal. | S15, §8.1, §13.1, §13.2 |
+| V506 no cron pod exists to check | The cron check is a template check plus a **probe pod** built from cron's pod template with its command overridden (`oc debug deploy/cron`); the real cron stays at 0. A consumer with no evidence fails the handover. | §8.3, §14.6 |
+| V507 144 GiB was short with the restore drill; 2 vs 3 Postgres instances | G3: three instances, no prod restore drill, and a corrected budget of 133.1 GiB of 144 | §5.4, §11.1 |
+| V508 backup destination too small | G4: snapshots store each file once; sized from the real file set with an alert | C8, §8.1 |
+| Also | After a successful return, restoring the `precutover` Routes, mode and cron keeps `DB_NAME=moodle_bailout` | §14.8 |
+
 ## 1. Summary
 
 | | |
@@ -162,7 +186,7 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
 | **Why there** | 950003 already has 4 CPU / 32 GiB / 96 GiB per namespace; dev and test fit without any request. The new project set (ad4087 on Gold) cannot run anything without a quota increase. |
 | **How** | Install the new stack beside the old one under different names. Data is **copied, never moved**. At cutover, legacy is frozen and both public Routes are repointed. Legacy stays intact, frozen and **running** (in maintenance, cron at 0) for a short bail-out window, and is removed only after sign-off. |
 | **Order** | Local → dev → test → prod → decommission. |
-| **Platform requests** | **Prod: one temporary request for CPU and storage** (D1), until decommission. Drafted in [quota-request-950003-prod-temporary.md](quota-request-950003-prod-temporary.md): **4 → 6 cores and 96 → 144 GiB**. Test and dev fit today. |
+| **Platform requests** | **Prod: one temporary request for CPU and storage** (D1), until decommission. Drafted in [quota-request-950003-prod-temporary.md](quota-request-950003-prod-temporary.md): **4 → 7 cores and 96 → 144 GiB**. Test and dev fit today. |
 | **Commit point** | The first action that can produce an external effect (S11). Before it, rollback loses nothing. After it, going back is a second migration (§14). |
 
 ## 2. Environment roles (`CLAUDE.md` is authoritative)
@@ -201,6 +225,18 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
     Undo, from the `prereturn` capture (S14): `DB_NAME=moodle` everywhere it changed, the original backup target, revoke the
     grant, then drop `moodle_bailout`.
   - **E6** Decommissioning (Phase 5).
+  - **E7** Uninstalling `local_githubsync` from legacy test and prod (G1, V503). This happens in the same week, in both
+    environments, before any coexistence starts. Each environment is its own approved change with the `CLAUDE.md`
+    prerequisites: a fresh verified backup, a window, maintenance mode, a go/no-go and the rollback below.
+    1. Save the plugin's code directory and its tables and `config_plugins` rows to the private folder.
+    2. `php admin/cli/uninstall_plugins.php --plugins=local_githubsync --run` in a legacy php pod. Phase 1 confirms the
+       exact 4.5 syntax.
+    3. Remove `local/githubsync` from the legacy code volume (`moodle-app-data`), so Moodle doesn't offer to reinstall it.
+    4. Verify: `admin/cli/upgrade.php --is-pending` reports nothing pending; the plugin is gone from the plugin list; the
+       site works.
+
+    Rollback: restore the code directory, then run Moodle's install of that one plugin, and reload its saved rows if wanted.
+    Afterwards, prod and test still run identical plugin sets (454).
 
   **Galera is never restarted, scaled or reconfigured before Phase 5.** A full Galera cold start is the failure mode behind
   the May 2026 eight-hour outage.
@@ -213,8 +249,9 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
   - the outbound guard on (§8.2): no email, ELM URLs and tokens replaced with a dead local address, web services off;
   - cron off;
   - for local and dev copies that don't need SSO, no route to the internet at all;
-  - the stored GitHub sync credential, already expired at GitHub (owner, 2026-11-23), **also** blanked in the copy. The plugin's manual
-    sync page and file editor call GitHub directly with it, bypassing plugin settings and the web-services switch (DR03).
+  - **no GitHub sync plugin.** It is uninstalled from legacy (E7) and absent from the new image. Until E7 is done in an
+    environment, copies of its data delete the plugin's `local_githubsync_config` rows. Its manual sync page and file editor
+    send HTTP requests to GitHub even with a blank or expired token, so blanking the token is not enough (DR03, V503).
 
   The guard is fail-closed: it is on unless `MOODLE_OUTBOUND=on` is set explicitly.
 - **S5. One approved change at a time.** Every cluster change is a numbered step with the exact command, expected result,
@@ -254,13 +291,19 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
   - **Writer fence.** It keeps the database up, so a return can still extract from it:
     1. point every Route that reaches the new stack (public, temporary and any restricted review Route) at the fence target
        or at legacy;
-    2. scale the new web, php and cron to 0;
-    3. suspend the new stack's CronJobs that run application code;
-    4. verify that those pods are gone, the CronJobs are suspended, and `pg_stat_activity` shows only allowlisted sessions.
+    2. `helm upgrade` with the **fenced profile** (`migration.state=fenced`): web, php and cron at 0 replicas, HPAs off,
+       application CronJobs suspended, outbound off. The fenced state lives in the rendered release, so a later upgrade
+       can't bring writers back. **Every** upgrade while fenced uses this profile (V501).
+       - If Helm or the rollout fails, scale and suspend imperatively, then retry the fenced upgrade.
+    3. **Verify without SQL** (V502): every application controller desired at 0 with 0 pods; no application Job active;
+       every application CronJob suspended; no Route reaches the new application. Repeat after every upgrade.
 
-    Postgres keeps running.
+    Postgres keeps running. A precommit abort needs nothing more, and works with the new database down or unreachable.
   - **Full shutdown**, when database access isn't needed: the writer fence, then `PostgresCluster.spec.shutdown: true`
-    (the Crunchy-supported shutdown).
+    (the Crunchy-supported shutdown). It is verified the same way, without SQL.
+  - **Database quiescence is a separate check, for returns only:** before extracting data (§14.1), `pg_stat_activity`
+    shows only allowlisted management sessions. If the database is unreachable or the check fails, the return stops; the
+    abort path above still works.
 
   NetworkPolicies are additive. A deny-all policy does **not** revoke existing allows (`allow-all-internal`, router ingress,
   the chart's own egress rules), so no step relies on one. `maintenance.php` on the new site is used when it works, but is
@@ -273,11 +316,17 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
 
   Every restore step names the capture it uses. Moving legacy from CLI maintenance to web maintenance (as test may need)
   happens **behind a Route fence or restriction**, never through an interval open to everyone (RB06).
-- **S15. Before the commit point, only named reviewers reach a copy** (DR08, DR09). Every Route that reaches a copy of real
-  data before the commit point carries `haproxy.router.openshift.io/ip_whitelist`, set to the named reviewers' addresses.
-  That covers the new stack's temporary Route at CP2, the public Routes at CP3, and the public Routes while legacy is
-  validated during a return.
+- **S15. Before the commit point, only named reviewers reach a copy** (DR08, DR09, V505). Two controls, both in place before
+  any real data is exposed:
+  - **Network:** every Route that reaches a copy of real data before the commit point carries
+    `haproxy.router.openshift.io/ip_whitelist`, set to the named reviewers' addresses. That covers the new stack's temporary
+    Route (restricted **from creation**, rendered by the chart, and verified before any data is loaded), the public Routes
+    at CP3, and the public Routes while legacy is validated during a return.
+  - **Identity** (G2): in the pre-commit profile, `config.php` forces `$CFG->siteadmins` to the named reviewers' accounts.
+    Web maintenance therefore admits nobody else, even from an allowed address. The reviewers are named before each window;
+    by default it is the owner alone.
   - Checks that need SSO use the **public hostnames**, so the registered callbacks work.
+  - Rehearsal proves that a non-reviewer admin, from an allowed address, is refused.
   - Acceptance uses synthetic records only. Before the commit point, a log check shows no writes by anyone outside the
     reviewer list.
   - The restriction is lifted only as part of the commit point (§13.3) or legacy's reopening (§14.8).
@@ -414,13 +463,18 @@ Figures are **requests against quota**, not utilization. Long-running compute:
 
   Rollout surge also counts. Sizing uses admitted requests from dev Pass A, not template sums.
 - **D1 request,** drafted in [quota-request-950003-prod-temporary.md](quota-request-950003-prod-temporary.md): prod
-  **4 → 6 cores and 96 → 144 GiB**, from the start of prod coexistence until decommission.
-  - CPU covers the new stack's peak, about 2.3 cores including rollout surge and backup Jobs counted as long-running.
-  - Storage covers about 31 GiB of new PVCs (moodledata, Postgres data, the pgBackRest repository, a moodledata backup
-    destination and Valkey), plus headroom.
+  **4 → 7 cores and 96 → 144 GiB**, from the start of prod coexistence until decommission.
+  - CPU covers the new stack's peak, about 2.8 cores: three Postgres instances, rollout surge, backup Jobs counted as
+    long-running, and the return's configuration probe (V506). With legacy's 2.975 that is about 5.8 of 7.
+  - Storage covers 40 GiB of new PVCs: moodledata 6, Postgres 3 × 5, the pgBackRest repository 8, the moodledata
+    snapshot destination 10 (G4) and Valkey 1. With legacy's 93.1 GiB that is **133.1 of 144 GiB**.
+  - **No restore drill runs in prod during the parallel run** (G3, C7); combined restores are proven in dev (S12).
   - Replace these planning numbers with Pass A's admitted requests if they exist when it is submitted.
 
-  Test needs about 1.5 CPU and 12 GiB, which fit.
+  **Test needs no request** if it runs **two** Postgres instances during the parallel run (three would need about 2.8 CPU
+  against test's 2.6 free). The test profile is about 2.15 CPU, and 14 GiB of PVCs: moodledata 3, Postgres 2 × 2,
+  repository 3, snapshot destination 3 and Valkey 1, against 18.9 GiB free. It has no restore drill. Test moves to three
+  instances after legacy test is decommissioned. Pass A confirms these numbers.
 - **Legacy Galera PVCs:** prod 5 × 10 GiB with about 7.0 GiB free each; test 5 × 7 GiB with 5.1 GiB free each. Both are
   more than twice the database size, which a return needs (§14.0).
 
@@ -528,8 +582,10 @@ All legacy Routes use `targetPort: 8080`. The new chart's Service port is named 
   - its manual sync page (`sync.php`) and its AJAX file editor call `https://api.github.com` directly with that credential,
     bypassing plugin settings and the web-services switch (DR03).
 
-  **The owner confirmed on 2026-11-23 that the credential had long since expired,** and every copy also blanks it (§8.3). **O2:** the plugin
-  itself stays in legacy.
+  The credential had long since expired (owner, 2026-11-23), but a blank or expired token **still sends the request**: a GET
+  from manual sync, and a PUT carrying the edited content from the file editor (V503). **G1:** the plugin is uninstalled from
+  legacy test and prod (E7) and left out of the new image. Until then, copies delete its configuration rows. This supersedes
+  O2.
 - **SMTP:** `smtphosts = apps.smtp.gov.bc.ca`; `allowedemaildomains = *.gov.bc.ca`.
 - **SSO:** core `oauth2` only. "BC Government Login" is enabled (prod `loginproxy.gov.bc.ca`, test
   `test.loginproxy.gov.bc.ca`). Prod also has a disabled "Azure AD Login" issuer.
@@ -599,7 +655,7 @@ Each one needs a decision, recorded in §16.
 | Q1 | Who owns `learning.gww.gov.bc.ca` (DNS and certificate renewal)? *Test's only hostname is `moodle-950003-test.apps.silver.devops.gov.bc.ca` (Phase 0).* | Certificates must survive the Route switch | Patch the existing Route objects in place; never delete or recreate them |
 | Q2 | Who can change the "BC Government Login" redirect URIs? Does anything need `disablelogintoken`? | Login must work the minute the Routes move | Keep the same hostnames; keep `disablelogintoken` until we know |
 | Q3 | Is the ELM endpoint IP-allowlisted? Can ELM tell us about duplicates or test traffic? | Outbound safety, and the first post-reopening check | Treat any POST from a copy as an incident |
-| Q4 | *Answered: GitHub sync is unused* (O2: its task stays in legacy; disabled on copies; its stored credential has expired and is blanked in copies, DR03) | | |
+| Q4 | *Answered: GitHub sync is unused. G1: it is uninstalled from legacy test and prod (E7) and is not in the new image* | | |
 | Q5 | Do course developers use the tag-based migration script, or move `.mbz` files by hand? | The script breaks after the replatform | Assume manual; tell the developers |
 | Q6 | *Answered by Phase 0: only Moodle mobile app tokens; no other database accounts* | | |
 | Q7 | Who must be told about downtime? Is there a change-approval process? | Comms and approvals | The owner decides each time |
@@ -658,12 +714,22 @@ which happens as its own approved step.
   - temporary hostnames;
   - the image home and the per-environment image digest (C10);
   - sizes that fit the Phase 0 numbers, with `maxSurge` set so a rollout fits;
+  - Postgres instances: **3 in prod, 2 in test during its parallel run** (G3);
+  - the temporary Route's `route.allowedSources` (reviewer addresses). It is rendered as
+    `haproxy.router.openshift.io/ip_whitelist`, and **defaults to admitting nobody**, so the Route is restricted from
+    creation (S15, V505);
   - **HPAs set to min = max** (or disabled) in every migration state (RB04);
   - `restoreRehearsal` off until storage headroom is confirmed (C7);
   - alert recipients (Q14).
 - **C8, C16:** backups that S12 can rely on (RB10):
   - pgBackRest, with the final recovery set also copied to the owner's encrypted disk as the off-site copy (Q11);
-  - a moodledata backup suited to **file** storage: an archive or rsync to `netapp-file-backup` with checksums, not snapshots;
+  - a moodledata backup suited to **file** storage (G4, V508): daily `rsync --link-dest` snapshots of the referenced file set
+    to a `netapp-file-backup` PVC, 7 retained.
+    - Moodle's file store is content-addressed and append-only, so each snapshot stores only new files: about one full
+      copy plus churn.
+    - Each snapshot is verified (file count, sizes, SHA-1 names) before the oldest is deleted, so at least 6 verified sets
+      always remain, including after a failed or interrupted run.
+    - Sized at 10 GiB in prod (3 in test), with an alert at 80%. The peak space of a real rotation is measured in Pass A;
   - `moodledata-snapshot.sh` fails loudly, or is removed for file-class volumes;
   - every backup Job ends by verifying its artifact.
 - **C9:** an SMTP egress policy for php and cron to `apps.smtp.gov.bc.ca`, rendered only when `moodle.outbound=on`.
@@ -678,6 +744,8 @@ which happens as its own approved step.
   The OpenShift and Artifactory secrets are added only after this is merged.
 - **C15 (RB14):** separate the application's internet egress (`networkPolicy.externalEgress`) from a narrowly scoped rule
   for ops jobs' Kubernetes API access and alert delivery. Prove both in the isolated dev profile.
+- **Fenced profile (S13, V501):** `migration.state: normal | fenced`. `fenced` renders web, php and cron at 0 replicas,
+  HPAs off, application CronJobs with `suspend: true`, and outbound off. Every upgrade during a fence uses it.
 - **Fencing (S13, DR04):** no deny-all NetworkPolicy, because policies are additive. The writer fence and the full shutdown
   are scripted in `ops/replatform/` (§8.3). Any policy meant for the database pods must select Crunchy's own labels: the
   operator's pods don't carry the Helm release selector.
@@ -687,8 +755,8 @@ which happens as its own approved step.
 
 ### 8.2 Image changes
 - **Exact code (C10, S7).** Build one image per legacy build: **test** at `2024100711.03` (Build 20260519) and **prod** at
-  `2024100711.04` (Build 20260525). Every add-on, including `report_allbackups`, `local_githubsync` (O2) and the theme, is at
-  the commit that matches what legacy runs.
+  `2024100711.04` (Build 20260525). Every add-on, including `report_allbackups` and the theme, is at the commit that matches what
+  legacy runs. **`local_githubsync` is excluded**, because E7 removes it from legacy (G1).
 - **Prove it.** Compare checksums of the image's code tree with the legacy pod's `/var/www/html`, excluding `config.php` and
   the custom webroot files, which are not carried over (Q8). Every add-on's `version.php` must **equal** `config_plugins` in
   the source dump.
@@ -701,10 +769,12 @@ which happens as its own approved step.
   - `$CFG->forced_plugin_settings['local_psaelmsync']`: `apiurl` and `completion_apiurl` are set to
     `http://127.0.0.1:9/outbound-disabled`; `apitoken` and `completion_apitoken` to `''`; `enabled` to `0`;
     `notificationemails` to `''`;
-  - the same treatment for `local_githubsync`;
-  - the GitHub credential (already expired, per the owner) is **also** blanked in every copy by the local pipeline
-    (`local_githubsync_config.pat_encrypted = ''`), because the manual sync page and the file editor read it directly (DR03);
-  - `$CFG->scheduled_tasks` disables the `local_psaelmsync` and `local_githubsync` tasks. Verify the 4.5 syntax.
+  - `local_githubsync` is not in the image (G1, E7). Its manual sync page and file editor send requests even with a blank
+    token, so the plugin is removed rather than configured off (V503);
+  - **reviewer-only administration (S15, G2):** `$CFG->siteadmins` is forced to the account ids in
+    `MOODLE_REVIEWER_ADMINS`, so web maintenance admits only the named reviewers. This applies only while the guard is on;
+    the commit point (`MOODLE_OUTBOUND=on`) returns site administration to the database's own setting;
+  - `$CFG->scheduled_tasks` disables the `local_psaelmsync` tasks. Verify the 4.5 syntax.
   - `ops/replatform/check-outbound-guard.php` prints the effective values and runs at every checkpoint.
 - **Admins on a guarded copy** must not mark real courses complete. Acceptance uses **synthetic** records (§15, RB11).
 - Decide each legacy setting in §5.11 and record the decision in §16.
@@ -716,8 +786,8 @@ which happens as its own approved step.
 - `local-pipeline.sh`:
   1. Restore the dump into MariaDB 10.6.20.
   2. Run `check_database_schema.php`; expect only the §5.2 items.
-  3. In the local copy only, drop the reviewed extra tables **and the trigger** (O4), and blank the GitHub credential
-     (DR03).
+  3. In the local copy only, drop the reviewed extra tables **and the trigger** (O4). If the source predates E7, also drop
+     `local_githubsync`'s tables and its `config_plugins` rows (G1).
   4. **Stop if any version differs** from the image (S7).
   5. Run `migrate.php --dbtype=pgsql --prefix=mdl_ …` with the C14 runtime.
   6. `pg_dump -Fc`.
@@ -726,7 +796,7 @@ which happens as its own approved step.
   - `log_display` (rebuilt by `tool_dbtransfer`);
   - `search_simpledb_index` (rebuilt on the target with `search/cli/indexer.php --reindex`, never compared);
   - the dropped tables and trigger;
-  - the blanked GitHub credential.
+  - `local_githubsync`'s tables and settings, when the source predates E7.
 
   Any difference not on the list is a no-go.
 - **moodledata copy (O1):** `referenced-files.sql` lists the distinct `contenthash` values in `files` (excluding `.`).
@@ -742,10 +812,18 @@ which happens as its own approved step.
 - `state-capture.sh <name>` / `state-restore.sh <name>` (S14): write, or restore exactly, an immutable named capture
   (`precutover`, `prereturn`). A capture holds maintenance mode, cron replicas, all Route YAML, the health monitor, replica
   counts and `DB_NAME` for each consumer. The output is private (S9).
-- `writer-fence.sh` / `writer-unfence.sh` (S13, DR04): work from an inventory of every ingress path (public, temporary and
-  restricted Routes) and every writer (web, php, cron, application CronJobs). They move the Routes to the fence target,
-  scale writers to 0 and suspend the CronJobs, then verify that the pods are gone and `pg_stat_activity` shows only
-  allowlisted sessions. Postgres stays up. Neither script needs the new application to respond.
+- `writer-fence.sh` / `writer-unfence.sh` (S13, DR04, V501): work from an inventory of every ingress path (public,
+  temporary and restricted Routes) and every writer (web, php, cron, application CronJobs and Jobs). The fence script:
+  1. moves the Routes to the fence target;
+  2. runs `helm upgrade` with the fenced profile, falling back to an imperative scale-to-0 and suspend if Helm fails, then
+     retries the upgrade;
+  3. runs `verify-fenced.sh`.
+
+  Postgres stays up. Neither script needs the new application to respond. `writer-unfence.sh` upgrades with the normal
+  profile.
+- `verify-fenced.sh` (V502): **no SQL.** Checks that every application controller is desired at 0 with 0 pods, no
+  application Job is active, every application CronJob is suspended, and no Route reaches the new application. Run it
+  after every upgrade while fenced.
 - `full-shutdown.sh` / `full-start.sh`: the writer fence plus `PostgresCluster.spec.shutdown`, and the reverse.
 - `fence-target`: a static maintenance page the Routes can point at (legacy `maintenance-message`, or the chart's own page).
   The choice is decided and rehearsed in Pass B.
@@ -773,15 +851,29 @@ which happens as its own approved step.
      anything switches.
   2. `oc set env deploy/php deploy/cron DB_NAME=moodle_bailout` (cron stays at 0), and the same for any other consumer in
      `db-consumers.md`. Wait until ready.
-  3. Run `which-db.php` in each php and cron pod to print the effective `$CFG->dbname`. Every pod must say `moodle_bailout`.
+  3. Prove every consumer's database (V506):
+     - **php:** run `which-db.php` in each pod to print the effective `$CFG->dbname`;
+     - **cron (still at 0):** check the Deployment template's `DB_NAME`, then run a probe pod built from cron's own pod
+       template with its command overridden, so neither the cron loop nor its wrapper runs:
+       `oc debug deploy/cron --one-container -- php /var/www/html/ops/which-db.php`. It must print `moodle_bailout` and
+       connect;
+     - **any other consumer** in `db-consumers.md`: its own check.
+
+     A consumer with no evidence fails the handover.
   4. Retarget the backup (`mariadb=mariadb-galera:3306/moodle_bailout`) and restart its pod.
 
   The undo reverses each step from the `prereturn` capture: `DB_NAME=moodle`, the original backup target, then
   `REVOKE ALL PRIVILEGES ON moodle_bailout.* FROM 'moodle'@'%'`.
+- `legacy-refence.sh` (V504): points both public Routes at the static fence page, runs `maintenance.php --enable` on legacy
+  (CLI maintenance, which also re-gates cron), and waits for in-flight requests to drain. It always runs before any
+  database switch-back.
+- `frozen-checksums.sql`: per-table `CHECKSUM TABLE` of the frozen `moodle`, taken at `prereturn` and compared after any
+  abandoned return (V504).
 - `unique-conflicts.md`: how to read and resolve a unique-key failure in the reverse conversion (RB08). Every resolution is
   an owner decision.
-- `quiescence-pg.sql` (RB05): a fresh `pg_stat_activity` read, checked against an allowlist of our management sessions.
-  Write counters are reported as supporting evidence only.
+- `quiescence-pg.sql` (RB05; **returns only**, V502): a fresh `pg_stat_activity` read, checked against an allowlist of our
+  management sessions. Write counters are reported as supporting evidence only. A failure stops the return; it is never
+  part of an abort.
 - `elm-reconcile.md` (DR06): compares three sources between the §13.3 baseline and the §14.1 end-mark:
   - ELM's records of received completions, obtained by the owner as the ELM contact (Q19);
   - Moodle's `course_completions`;
@@ -814,8 +906,9 @@ created with `--internal`, so it has no route to the internet.
 6. **Import safety (RB13):** run `bailout-dump-check.sh` against a dump made with `--databases`; it must reject it. Load a
    good dump through the restricted account into a local `moodle_bailout`. Prove that a planted `INSERT INTO moodle.…` is
    denied and that a copy of the "frozen" `moodle` is unchanged.
-7. **GitHub (DR03):** on a copy that **has** HTTPS egress (the dev profile, not `--internal`), prove that the manual sync
-   page and the file editor fail, because the credential is blank (and expired), and that no request reaches GitHub.
+7. **GitHub (V503):** confirm the image has no `local_githubsync`, and that a copy restored from a pre-E7 dump has none of
+   its tables or settings after the pipeline. On a copy that **has** HTTPS egress (the dev profile, not `--internal`), its
+   former URLs return 404, and no connection to GitHub is attempted.
 8. Write the measured timings into §13.
 
 **Exit gate:** reviewers sign off v1.0 of this runbook, and the owner approves the start of Phase 2.
@@ -834,6 +927,8 @@ created with `--internal`, so it has no route to the internet.
   - **E4, dev:** scale the dev pod-health-monitor to 0. *Restoration condition:* scale to 1 if the replatform of that
     namespace is abandoned.
   - **Repair legacy dev (Q17)** as its own approved dev-only step: Galera 5/5, Routes back on `web`.
+  - **E7 rehearsal:** uninstall `local_githubsync` in legacy dev with the exact E7 commands, and roll it back once. Then
+    schedule E7 for test and prod in the same week, before §10.
   - **Recovery package and restart proof (S8, RB09):** build the package for dev. From it alone, with the old pipeline
     untouched, start fresh legacy php, web and cron pods (delete one pod of each). Prove the site works. Repeat after
     draining a node, if the platform allows it.
@@ -874,7 +969,17 @@ created with `--internal`, so it has no route to the internet.
     - a complete return to legacy dev, ending with legacy reopened by its own approval;
   - **representative new writes** before the return: uploads, edits and deletes, a course restore, a quiz attempt,
     synthetic completions, accent-distinct tags, and fresh IDs (RB08, RB11);
-  - a check that legacy serves the CLI maintenance page.
+  - a check that legacy serves the CLI maintenance page;
+  - the fourth review's scenarios (V501–V508):
+    1. a fenced `helm upgrade` (with `outbound=off`), including a failed upgrade and a retry, with no application writer
+       reappearing throughout an extraction;
+    2. a precommit abort with the new Postgres **unavailable for the whole procedure**;
+    3. GitHub: the plugin is absent, and no request leaves for GitHub under the HTTPS-capable CP3 profile;
+    4. an abandoned return **after** legacy web validation, with a reviewer session left refreshing, and the frozen
+       `moodle` proven unchanged;
+    5. the Route restricted before import, and a non-reviewer admin from an allowed address refused;
+    6. the cron database proven by the probe while cron stays at 0;
+    7. the snapshot rotation, including an interrupted run, and every restore state within the resource budget.
 
   Time everything. From the measured durations, set a **latest-abort time** for each window. **Do this twice cleanly.**
 - **Pass C: production-scale acceptance.**
@@ -898,6 +1003,7 @@ demonstrated; and sign-off from reviewers and the owner.
   - tell the course developers about the window and the freeze on site-level administration (Q20); they already know
     automated course backups haven't run since May (Q21);
   - agree the window;
+  - **E7 done in both test and prod** (G1);
   - take fresh verified backups of the database **and** moodledata;
   - build the test recovery package (S8);
   - confirm the quota (test fits).
@@ -918,8 +1024,8 @@ demonstrated; and sign-off from reviewers and the owner.
 
 ### 11.1 Before the window
 - **Submit the D1 temporary quota request early.** The
-  [draft](quota-request-950003-prod-temporary.md) asks for 4 → 6 cores and 96 → 144 GiB, until decommission; update it with
-  Pass A's admitted numbers if they're available.
+  [draft](quota-request-950003-prod-temporary.md) asks for 4 → 7 cores and 96 → 144 GiB, until decommission, with three
+  Postgres instances and no restore drill in prod (G3). Update it with Pass A's admitted numbers if they're available.
 - **ELM contact (Q19):** the owner. Before the window, confirm with ELM how received completions can be checked.
 - **Tell the admins** that site-level administration is frozen for the bail-out window (Q20).
 - **Tell learners** and agree the window.
@@ -960,7 +1066,7 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
 ### 13.1 Freeze legacy (R3)
 | T | Step | Verify | Undo |
 |---|---|---|---|
-| T−7d | New stack deployed (`install=false`, `outbound=off`, `cron=off`, temporary host); referenced files pre-copied | Collision check clean; legacy unchanged | `helm uninstall` and delete its PVCs |
+| T−7d | New stack deployed (`install=false`, `outbound=off`, `cron=off`, temporary host **restricted from creation**, S15); the restriction verified from a non-reviewer address before any data is loaded; referenced files pre-copied | Collision check clean; legacy unchanged; non-reviewer refused | `helm uninstall` and delete its PVCs |
 | T−1d | Backups verified; recovery package current; comms sent; quota recomputed; laptop on power and wired, sleep disabled | n/a | n/a |
 | T0 | **`state-capture.sh precutover`** (S14); note the latest-abort time | Saved privately | n/a |
 | T0 | **E1:** `php admin/cli/maintenance.php --enable` in one legacy php pod | Public URLs return the maintenance page to anonymous users **and** an admin session; a web-service call is refused | `state-restore.sh precutover` |
@@ -978,7 +1084,7 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
 | T+? | Scale the new stack to the target shape within quota (§11.2) | Pods ready; quota not exceeded | §13.4 |
 | T+? | `pg_restore` into the new primary; `compare-content.sh` against the frozen source; `check-filedir` | Only expected differences | Drop and recreate the new database; then §13.4 |
 | T+? | Site in **web** maintenance; purge caches; rebuild the search index; `check-outbound-guard.php` | No pending upgrade; guard values correct | n/a |
-| T+? | `restrict-routes.sh` on the temporary Route (S15); checks by named reviewers through it, with wwwroot on the temporary host | Every response carries `X-PSA-Stack: psa-moodle`; other addresses are refused | `unrestrict-routes.sh` |
+| T+? | Re-verify the temporary Route's restriction (in place since creation, S15); checks by named reviewers through it, with wwwroot on the temporary host | Every response carries `X-PSA-Stack: psa-moodle`; other addresses are refused; a non-reviewer admin is refused | n/a |
 | **CP2** | **Go/no-go: does the new site work for admins?** | | §13.4 |
 | T+? | Generate exact Route undo patches from the captured YAML. `helm upgrade` wwwroot = public hostname (still maintenance, cron 0, guard on) | Pods ready | `helm rollback` |
 | T+? | `restrict-routes.sh` on **both** prod Routes (S15), then **E3:** patch them: `spec.to.name` → `psa-moodle-web`, `spec.port.targetPort` → `http`, timeout annotation `900s`. Certificates untouched | Reviewer addresses get `X-PSA-Stack: psa-moodle`; other addresses are refused; the custom certificate is still served | Undo patches (Routes first), `unrestrict-routes.sh`, then `helm rollback` |
@@ -996,7 +1102,8 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
 ### 13.4 Reverse sequence (any rollback before the commit point)
 1. **Writer fence (S13),** or a full shutdown if the new database isn't needed:
    - if the Routes were switched, apply the saved undo patches first, or point the Routes at the fence target;
-   - run `writer-fence.sh`: new web, php and cron to 0, application CronJobs suspended, both verified;
+   - run `writer-fence.sh`: the fenced profile, then `verify-fenced.sh`. It uses no SQL, so this works with the new Postgres
+     down (V502);
    - run `full-shutdown.sh` as well, if wanted.
 
    Use `maintenance.php --enable` on the new site only if it responds. Verify that no hostname returns `X-PSA-Stack`.
@@ -1029,19 +1136,21 @@ business days for test, 5 for prod.
   - legacy moodledata has free space for the new content hashes plus a stated reserve (RB07; monitor it throughout the
     bail-out window, and alert before the reserve is reached);
   - the temporary quota still holds (D1).
-- The recovery package is current (S8); `state-capture.sh prereturn` has run (S14).
+- The recovery package is current (S8); `state-capture.sh prereturn` has run (S14); `frozen-checksums.sql` has recorded
+  the frozen `moodle`'s per-table checksums (V504).
 
 ### 14.1 Stop the new site's writers, keep its database (RB03, RB05, DR04)
 1. Optionally, `maintenance.php --enable` on the new site, if it responds.
-2. **`writer-fence.sh`:**
+2. **`writer-fence.sh`** (S13, V501):
    - every Route that reaches the new stack goes to the fence target;
-   - new web, php and cron go to 0, and application CronJobs are suspended;
-   - Postgres **stays up**;
-   - the script verifies the pods are gone.
-
-   Then run `helm upgrade` with `outbound=off`, so anything restarted stays guarded.
-3. **Quiescence:** `quiescence-pg.sql` shows only allowlisted management sessions. Write statistics are supporting evidence
-   only.
+   - `helm upgrade` with the **fenced profile**: writers at 0, application CronJobs suspended, outbound off, so no later
+     upgrade can bring a writer back;
+   - `verify-fenced.sh`, with no SQL;
+   - Postgres **stays up**.
+3. **Database quiescence** (returns only, V502): `quiescence-pg.sql` shows only allowlisted management sessions. Write
+   statistics are supporting evidence only. If it fails, or the database is unreachable, **stop the return**: either unfence
+   the new site, or use the abort path.
+   Re-run `verify-fenced.sh` just before the dump starts.
 4. **ELM end-mark:** record the last `local_psaelmsync` log id and time, and the latest `course_completions.timecompleted`.
    The completions to reconcile lie between the §13.3 baseline and this mark (DR06).
 
@@ -1072,7 +1181,8 @@ business days for test, 5 for prod.
 Run `bailout-switch.sh`, which:
 1. grants `moodle@%` privileges on `moodle_bailout.*` and proves it can connect;
 2. sets `DB_NAME=moodle_bailout` on php, on cron (still at 0) and on every other consumer in `db-consumers.md`;
-3. checks `which-db.php` in every pod;
+3. proves every consumer's database: `which-db.php` in each php pod, and for cron (still at 0) its template plus a probe
+   pod with the cron loop disabled (V506);
 4. retargets legacy's database backup.
 
 Legacy stays in CLI maintenance (`climaintenance.html` also keeps cron gated), and the public Routes stay on the fence target.
@@ -1095,7 +1205,8 @@ Legacy has **no** outbound guard, so nobody triggers completions during these ch
 1. **Recovery set first (S12, DR05):** a verified backup of `moodle_bailout` from the retargeted backup job, plus the
    matching moodledata, checksummed, with the off-site copy on the owner's encrypted disk.
 2. Run `unrestrict-routes.sh`. Then set the Routes, maintenance mode and cron to the **`precutover`** capture's values: the
-   state before the original cutover, not the frozen `prereturn` values. Announce.
+   state before the original cutover, not the frozen `prereturn` values. **`DB_NAME` stays `moodle_bailout` on every
+   consumer, and the backup stays retargeted.** Only Routes, maintenance mode and cron come from `precutover`. Announce.
 
 **This is the return's commit point.** After it, going back to the new stack is another migration.
 
@@ -1105,14 +1216,19 @@ with Moodle's completion records **and** the local log, between the baseline and
 interrupted between sending and logging (DR06). Handle duplicates and gaps as agreed. Legacy does not replay anything
 automatically. Record the outcome.
 
-### Abandon and resume (before 14.8, RB03)
+### Abandon and resume (before 14.8, RB03, V504)
 The return can be abandoned at any point before 14.8, losing no work, because no writes were accepted anywhere after the
-fence:
-1. if 14.6 ran, `bailout-unswitch.sh`;
-2. `DROP DATABASE moodle_bailout` and drop the import account;
-3. `writer-unfence.sh` (plus `full-start.sh` if a full shutdown ran): scale up, `outbound=on`, cron on;
-4. `state-restore.sh prereturn` for the Routes, which sends them back to the new stack; then `maintenance.php --disable` on
+fence. **The order matters:**
+1. **Re-fence legacy first** (`legacy-refence.sh`): both public Routes to the static fence page; `maintenance.php --enable`
+   on legacy (CLI maintenance, which also re-gates cron); in-flight requests drained; cron stays at 0;
+2. if 14.6 ran, `bailout-unswitch.sh`;
+3. `frozen-checksums.sql` again: every table of the frozen `moodle` must match the checksums recorded in §14.0;
+4. `DROP DATABASE moodle_bailout` and drop the import account;
+5. `writer-unfence.sh` (plus `full-start.sh` if a full shutdown ran): the normal profile, `outbound=on`, cron on;
+6. `state-restore.sh prereturn` for the Routes, which sends them back to the new stack; then `maintenance.php --disable` on
    the new site.
+
+Legacy ends as it was during the bail-out window: frozen, in CLI maintenance, cron at 0, and no Route pointing at it.
 
 ### Last resort (owner only)
 If the new site cannot resume and the return cannot complete:
@@ -1129,12 +1245,13 @@ If the new site cannot resume and the return cannot complete:
   - the mojibake census over **text and binary-typed columns**, plus the stray-character check, matches §5.12;
   - the search index is rebuilt on the target and then passes the same census.
 - **Which stack answered:** every check confirms the `X-PSA-Stack` header.
-- **Outbound (DR03):** in the CP3 configuration, GitHub sync's manual sync page and file editor fail, and no request reaches
-  GitHub. `check-outbound-guard.php` shows the guarded values.
-- **Reviewer-only access (S15):** other addresses are refused on every restricted Route, and `reviewer-write-check.sql`
-  finds no writes by anyone outside the reviewer list before the commit point.
-- **After a return (DR05):** every consumer in `db-consumers.md` reports `moodle_bailout`, and legacy's scheduled database
-  backup targets `moodle_bailout` and has completed once, verified.
+- **Outbound (V503):** `local_githubsync` is absent (no code, no tables, no settings), its former URLs return 404, and no
+  request leaves for GitHub. `check-outbound-guard.php` shows the guarded values.
+- **Reviewer-only access (S15):** other addresses are refused on every restricted Route; a non-reviewer admin from an
+  allowed address is refused too (G2); and `reviewer-write-check.sql` finds no writes by anyone outside the reviewer list
+  before the commit point.
+- **After a return (DR05, V506):** every consumer in `db-consumers.md` reports `moodle_bailout`, cron through its probe;
+  legacy's scheduled database backup targets `moodle_bailout` and has completed once, verified.
 - **Login:** SSO ("BC Government Login") on the public hostnames and the local admin account.
 - **Courses:** course pages, images and files; H5P (`mod_hvp` and core); lessons, books and quizzes, including an attempt;
   grades; search; reports, including `report_allbackups`; document conversion (unoconv, Ghostscript).
@@ -1175,7 +1292,7 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-23 | **D2** Firm rollback before the commit point; a second migration after it; bail-out windows of 3 (test) and 5 (prod) business days | Owner |
 | 2026-11-23 | **D3** Return by switching legacy `config.php` to a verified `moodle_bailout`; no `RENAME TABLE` | Owner |
 | 2026-11-23 | **O1** Copy referenced files only; archive the unreferenced set before decommission; investigate only on report | Owner |
-| 2026-11-23 | **O2** Leave GitHub sync's task in legacy; the guard disables it on copies; Phase 1 decides on uninstalling | Owner |
+| 2026-11-23 | **O2** ~~Leave GitHub sync's task in legacy~~ (superseded the same day by G1: uninstall) | Owner |
 | 2026-11-23 | **O3** Test's automated course backups (failing since 2026-05-20): leave to the replatform; tell the developers | Owner |
 | 2026-11-23 | **O4** Drop `trg_log_completion_criteria_delete` on the new stack | Owner |
 | 2026-11-23 | **Q19** The owner is the ELM contact; **Q20** freeze site-level administration during bail-out windows; **Q21** course developers told about test's automated backups | Owner |
@@ -1184,6 +1301,11 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-23 | Accept third-review findings DR01–DR09 and both procedure points into v0.5 | Owner |
 | 2026-11-23 | **The stored GitHub sync credential had long since expired** (DR03); copies also blank it | Owner |
 | 2026-11-23 | **Q11** The off-site copy for S12 is the owner's copy on the encrypted laptop disk | Owner |
+| 2026-11-23 | Accept fourth-review findings V501–V508 into v0.6 | Owner |
+| 2026-11-23 | **G1** Uninstall `local_githubsync` from legacy test and prod (E7); the new image excludes it | Owner |
+| 2026-11-23 | **G2** Routes restricted from creation; reviewer-only `siteadmins` in the pre-commit profile (default reviewer: the owner) | Owner |
+| 2026-11-23 | **G3** Three Postgres instances in prod, two in test during its parallel run; no restore drill in prod or test during the parallel run; quota draft 4 → 7 cores, 96 → 144 GiB | Owner |
+| 2026-11-23 | **G4** Moodledata backups as daily `rsync --link-dest` snapshots, 7 retained | Owner |
 
 **Phase 0 findings (2026-11-18):** see [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md).
 The facts that change the plan are folded into §5 and §6.
@@ -1191,7 +1313,10 @@ The facts that change the plan are folded into §5 and §6.
 ## 17. References
 - **Reviews:** [replatform-950003-review.md](replatform-950003-review.md) (v0.1, R1–R12),
   [replatform-950003-rollback-review.md](replatform-950003-rollback-review.md) (v0.3, RB01–RB14) and
-  [replatform-950003-v04-review.md](replatform-950003-v04-review.md) (v0.4, DR01–DR09).
+  [replatform-950003-v04-review.md](replatform-950003-v04-review.md) (v0.4, DR01–DR09) and
+  [replatform-950003-v05-review.md](replatform-950003-v05-review.md) (v0.5, V501–V508).
+- **Helm:** [three-way merge](https://helm.sh/docs/faq/changes_since_helm2/#improved-upgrade-strategy-3-way-strategic-merge-patches)
+  (an upgrade can restore replicas scaled to 0 outside Helm)
 - **Quota draft:** [quota-request-950003-prod-temporary.md](quota-request-950003-prod-temporary.md)
 - **Kubernetes:** [NetworkPolicies are additive](https://kubernetes.io/docs/concepts/services-networking/network-policies/#the-two-sorts-of-pod-isolation);
   [quota scopes](https://kubernetes.io/docs/concepts/policy/resource-quotas/#quota-scopes) (`Terminating` needs a pod-level

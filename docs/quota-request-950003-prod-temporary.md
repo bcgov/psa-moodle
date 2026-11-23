@@ -1,8 +1,7 @@
 # Temporary quota request — 950003-prod (replatform parallel run)
 
-> **DRAFT, 2026-11-23. Not submitted.** It supports decision D1 in
-> [replatform-950003-runbook.md](replatform-950003-runbook.md). Check it against the v0.4 review
-> ([replatform-950003-v04-review.md](replatform-950003-v04-review.md)) before submitting. The new stack's figures are
+> **DRAFT, 2026-11-23 (revised for the v0.5 review, V507/V508). Not submitted.** It supports decision D1 in
+> [replatform-950003-runbook.md](replatform-950003-runbook.md). The new stack's figures are
 > planning numbers, from the a58ce1 PoC's admitted requests scaled to the prod shape. Replace them with dev Pass A's
 > admitted requests if those exist by submission time.
 
@@ -10,17 +9,18 @@
 
 | Namespace | CPU (cores) | Memory (GiB) | Storage (GiB) |
 |---|---:|---:|---:|
-| Production | **4 → 6** (temporary) | 32 (no change) | **96 → 144** (temporary) |
+| Production | **4 → 7** (temporary) | 32 (no change) | **96 → 144** (temporary) |
 | Test | no change (4) | no change (32) | no change (96) |
 | Development | no change | no change | no change |
 | Tools | no change | no change | no change |
 
 - **Storage** +48 GiB is +50%, and prod's allocated storage is at 97%, so the size criteria for automatic approval are met.
-  The minimum workable figure is **128 GiB (+32)**, which leaves about 4 GiB of margin.
-- **CPU** +2 cores is +50%, but prod's actual CPU utilization is far below 35%, so expect **manual review**. The
-  justification below is written for that.
+  The budget below needs 133.1 GiB, leaving about 10.9 GiB of margin. **No restore drill runs in prod during the parallel
+  run;** restore rehearsals run in dev.
+- **CPU** +3 cores (+75%). Prod's actual CPU utilization is far below 35%, so expect **manual review** whatever the size.
+  The justification below is written for that.
 - **Duration:** until legacy prod is decommissioned (estimated 4–6 weeks). We will then file a decrease back to
-  4 cores / 96 GiB. Afterwards the new stack runs within the original quota.
+  4 cores / 96 GiB. Afterwards the new stack (about 2.8 cores and 40 GiB at peak) runs within the original quota.
 
 ## Paste-ready text
 
@@ -29,7 +29,7 @@ We are replacing the legacy Moodle stack in 950003-prod with a new one: MariaDB 
 are replaced by Crunchy Postgres, Valkey and immutable images. This is the platform's Example 3 pattern, a temporary
 parallel run for a database migration. For a short bail-out window after cutover, both stacks must run side by side in prod,
 with legacy kept frozen but running so it can take traffic back without a cold start of its Galera and Redis clusters. We
-request a **temporary** increase of prod CPU from 4 to 6 cores and storage from 96 to 144 GiB, until legacy is
+request a **temporary** increase of prod CPU from 4 to 7 cores and storage from 96 to 144 GiB, until legacy is
 decommissioned. We will then request a decrease back to 4 cores / 96 GiB.
 
 ### 2. Current and desired states of the relevant OpenShift objects
@@ -57,29 +57,32 @@ five-minute peak.
 | php-fpm | 3 | 200m | 512Mi | 0.600 |
 | cron | 1 | 100m | 256Mi | 0.100 |
 | Valkey | 1 | 50m | 128Mi | 0.050 |
-| Crunchy Postgres instance (with 3 sidecars) | 2 | 400m | 1.25Gi | 0.800 |
+| Crunchy Postgres instance (with 3 sidecars; 3 instances per platform guidance) | 3 | 400m | 1.25Gi | 1.200 |
 | pgBackRest repository host | 1 | 100m | 512Mi | 0.100 |
 | Rolling-update surge (one php pod) | 1 | 200m | 512Mi | 0.200 |
-| Backup Jobs while running (pgBackRest full/incremental, integrity check) | 1–2 | about 150m | about 256Mi | 0.300 |
-| **New stack peak** | | | | **2.300** |
+| Backup Jobs while running (pgBackRest full/incremental, file-backup snapshot, integrity check) | 1–2 | about 150m | about 256Mi | 0.300 |
+| Short-lived configuration probe during a return | 1 | 100m | 256Mi | 0.100 |
+| **New stack peak** | | | | **2.800** |
 
 The backup Job pods have no `activeDeadlineSeconds`, so they count against the **long-running** quota, not the
-time-bound one. Both stacks together peak at about **5.3 cores** of requests. 6 cores leaves about 0.7 cores for a restore
-rehearsal and operator variance. Memory, about 11.5 GiB of requests in total, fits the existing 32 GiB.
+time-bound one. Both stacks together peak at about **5.8 cores** of requests, so 7 cores leaves about 1.2 cores for rollout
+variance and operator sidecar defaults. No restore drill runs in prod during the parallel run. Memory, about 13 GiB of
+requests in total, fits the existing 32 GiB.
 
 **Storage added temporarily:**
 
 | PVC | Class | Size (GiB) | Basis |
 |---|---|---:|---|
 | Moodle data (RWX) | `netapp-file-standard` | 6 | 2.93 GiB of referenced files today, plus growth |
-| Postgres data | `netapp-block-standard` | 2 × 5 | Database is about 1 GiB today; WAL and vacuum headroom |
+| Postgres data | `netapp-block-standard` | 3 × 5 | Database is about 1 GiB today; WAL and vacuum headroom; three instances |
 | pgBackRest repository | `netapp-file-backup` | 8 | Full and incremental backups plus WAL; class backed up by OCIO |
-| Moodle data backup destination | `netapp-file-backup` | 6 | Verified file-backup copies (two retained) |
+| Moodle data backup destination | `netapp-file-backup` | 10 | Daily `rsync --link-dest` snapshots, 7 retained. Moodle's file store is content-addressed and append-only, so each snapshot stores only new files (one full copy, about 2.9 GiB, plus churn). Alert at 80% |
 | Valkey | `netapp-file-standard` | 1 | Cache persistence |
-| **Total** | | **31** | |
+| **Total** | | **40** | |
 
-With 2.9 GiB free today, 31 GiB needs at least 128 GiB in total. We request **144 GiB** to leave room for a restore
-rehearsal and for growth of the legacy Moodle data volume during the bail-out window (3.7 GiB free on it today).
+Legacy prod has 93.1 GiB allocated today (95,332 MiB). Adding these 40 GiB makes **133.1 GiB**, so 144 GiB leaves about
+10.9 GiB for growth, including possible growth of the legacy Moodle data volume during the bail-out window (3.7 GiB free on
+it today). Restore rehearsals run in dev, not in prod, during the parallel run.
 
 ### 3. What steps have you taken to fit the application into the current quota?
 - The new stack fits prod's current quota **on its own**. Only the overlap needs more, which is why the request is temporary.
