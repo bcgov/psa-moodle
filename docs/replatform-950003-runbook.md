@@ -1,6 +1,6 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v0.6 for review, 2026-11-23. Nothing in this runbook has been executed** except Phase 0, which was
+> **Status: DRAFT v0.7 for review, 2026-11-24. Nothing in this runbook has been executed** except Phase 0, which was
 > read-only (2026-11-18).
 > v0.2 answered the first review ([replatform-950003-review.md](replatform-950003-review.md), R1–R12, §0).
 > v0.3 added facts from the 2026-11-18 prod mojibake window (§0.1).
@@ -8,8 +8,9 @@
 > RB01–RB14), added the Phase 0 findings ([replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md)) and
 > recorded the owner's decisions D1–D3 and O1–O4 (§0.2).
 > v0.5 answered the third review ([replatform-950003-v04-review.md](replatform-950003-v04-review.md), DR01–DR09, §0.3).
-> **v0.6 answers the fourth review** ([replatform-950003-v05-review.md](replatform-950003-v05-review.md), V501–V508) and
-> records the owner's decisions on it. §0.4 lists every change.
+> v0.6 answered the fourth review ([replatform-950003-v05-review.md](replatform-950003-v05-review.md), V501–V508, §0.4).
+> **v0.7 answers the fifth review** ([replatform-950003-v06-review.md](replatform-950003-v06-review.md), V601–V605) and
+> records the owner's decisions on it. §0.5 lists every change. That review cleared **Phase 1 preparation to start**.
 > It supersedes the "request a new project set" direction in `README.md` (Current direction) and
 > `docs/quota-request.md`. The plan is to replatform **inside** the existing 950003 namespaces on Silver, using their existing
 > quota plus one temporary increase for prod, then release ad4087 (Gold) and retire a58ce1.
@@ -32,8 +33,8 @@ The service owner is cautious and wants a plan that cannot strand them.
 
 **Please try to break this promise.**
 
-**If you reviewed v0.5,** check first that each of V501–V508 is resolved by the sections listed in §0.4, and that the fixes
-haven't opened new gaps. (Earlier findings: DR01–DR09 in §0.3, RB01–RB14 in §0.2.)
+**If you reviewed v0.6,** check first that each of V601–V605 is resolved by the sections listed in §0.5, and that the fixes
+haven't opened new gaps. (Earlier findings: V501–V508 in §0.4, DR01–DR09 in §0.3, RB01–RB14 in §0.2.)
 
 Look especially for:
 
@@ -177,6 +178,29 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
 | V508 backup destination too small | G4: snapshots store each file once; sized from the real file set with an alert | C8, §8.1 |
 | Also | After a successful return, restoring the `precutover` Routes, mode and cron keeps `DB_NAME=moodle_bailout` | §14.8 |
 
+## 0.5 Changes in v0.7 (fifth review, 2026-11-24)
+
+The fifth review's disposition: **start Phase 1 preparation**; cutover approval waits for the V601–V605 demonstrations and
+the existing exit gates. The owner accepted all five findings and the decisions below on 2026-11-24. The owner also
+accepted the remaining reviewer-access risk (V505); the reviewer agreed it is not a cutover blocker.
+
+### Owner decisions on the fifth review
+| ID | Decision | Where |
+|---|---|---|
+| H1 | **Complete-site recovery point:** if the new stack's moodledata volume is lost, up to **24 hours** of work can be lost (the last nightly paired recovery set). If only the database is lost, recovery is to within minutes (WAL), using the live files. | S12, C8 |
+| H2 | **Test's moodledata snapshot destination is 5 GiB** (was 3). Test's new PVCs total 16 GiB, so test runs at about 93.1 of 96 GiB during its parallel run. Prod stays at 10 GiB; the prod quota request is unchanged. | §5.4, C8 |
+| H3 | **An abandoned return may leave legacy cleanup pending.** The new site resumes behind an infrastructure-only legacy fence. Until the cleanup and the frozen-database checksums complete, legacy is **not** reopened and is **not** a fallback, including the last resort. | §8.3, §14 |
+
+### Findings
+| Finding | What changed | Where |
+|---|---|---|
+| V601 abandoning a return needs the failed legacy PHP and Galera | Abandonment has two tiers. **Required, infrastructure only:** `legacy-fence-infra.sh` points every legacy Route at the static fence page and confirms legacy cron is at 0; `verify-legacy-fenced.sh` checks it **without PHP or SQL**. The new stack then resumes. **Best effort:** CLI maintenance, the database switch-back, checksums and `DROP DATABASE moodle_bailout`, each recorded as pending if legacy PHP or Galera is unavailable. Rehearsed with legacy PHP down and with Galera unreachable for the whole procedure. | §4, §8.3, §9, §14 |
+| V602 the file backup omits `secret/` and `lang/` | Every snapshot and every recovery set includes the durable dataroot items (`secret/`, `lang/`), listed in a recovery-set manifest. Moodle creates a new key silently if `secret/key` is missing, so this is checked by decrypting a canary after a restore onto an empty volume. | S12, C8, §8.3, §9 |
+| V603 database and file recovery points aren't paired | The snapshot's **start time T** is the pairing key. Restores bring the database to **T − 60 s** by point-in-time recovery. Moodle writes a file's content before its database row, and moves deleted content to `trashdir` (restoring it from there on access), so the snapshot copies all of `filedir` and then `trashdir`. pgBackRest retention becomes time-based (at least 8 days), so every retained snapshot has its WAL. The restore script takes an explicit target. | S12, C7, C8, §8.3, §9 |
+| V604 retention space isn't bounded | Sizes come from a stated churn allowance (prod about 0.6 GiB a day of replaced content, test about 0.3). The job is space-aware: it builds into `incoming/`, checks free space for the incoming delta before starting, prunes to a floor of 3 verified sets when short, and fails loudly (alerting) rather than starting a set it can't finish. Alert at 70%; the response is to grow the PVC within quota. | §5.4, C8, §9 |
+| V605 an abandoned return skips ELM reconciliation | Reconciliation follows **every** return attempt that fenced the new stack after the commit point, successful or abandoned. After an abandonment the window is the fence interval plus a margin. The mock-endpoint rehearsal abandons after an interrupted request. | §8.3, §9, §14.9 |
+| Stale facts | Legacy dev Galera reports 5/5 (2026-11-24); its Routes still point at `maintenance-message` | §5.5, Q17 |
+
 ## 1. Summary
 
 | | |
@@ -278,15 +302,26 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
   It is approved as its own step after CP3 (§13.3) and recorded in the window log **before** it runs, together with the ELM
   baseline (RB11). Before any rollback, the new stack's processing is stopped first (S13).
 - **S12. No reopening without a usable recovery set.** Before the new site opens, all of these hold:
-  - a **named recovery set** exists: a pgBackRest backup label or recovery time, plus a matching moodledata archive, with
-    checksums;
+  - a **named recovery set** exists, described by a manifest (V602, V603):
+    - the database recovery target: a pgBackRest backup label, or a point-in-time target paired with a file snapshot;
+    - the file snapshot: all of `filedir`, then `trashdir`, with its start time T;
+    - the durable dataroot items: `secret/` (Moodle's encryption key) and `lang/` (language customisations);
+    - the configuration it depends on: the chart values file and image digest, and the names of the Secrets it needs;
+    - checksums of every artifact;
+
+    Caches, sessions, temp, locks and `muc/` are deliberately excluded.
   - the artifacts are verified by reading them, not by a green Job (RB10);
   - the **off-site copy is the owner's copy on the encrypted laptop disk** (owner decision, 2026-11-23), made and checked
     against the checksums inside the window. `netapp-file-backup` holds a second, in-cluster copy; writing there is not
     proof that OCIO has copied that particular set off-site;
   - scheduled database and moodledata backups run with retention and failure alerts;
-  - a combined database-and-files restore from such a set has been demonstrated in dev with the same tooling, and its
-    duration recorded.
+  - a combined database-and-files restore from such a set has been demonstrated in dev with the same tooling, **onto empty
+    storage**, with the recovery target enforced, and its duration recorded (V602, V603).
+
+  **Complete-site recovery point (H1):** if only the database is lost, it is recovered to within minutes (WAL) and used
+  with the live files. If the moodledata volume is lost, the site goes back to the last nightly paired set, losing up to
+  24 hours of work. Alternatively, the owner may keep the database current and accept the recent uploads that
+  `check-filedir` lists as missing. The owner decides per incident.
 - **S13. Fence without the new application.** There are two procedures, both using infrastructure only (DR04):
   - **Writer fence.** It keeps the database up, so a return can still extract from it:
     1. point every Route that reaches the new stack (public, temporary and any restricted review Route) at the fence target
@@ -343,8 +378,8 @@ The owner accepted all nine findings and both procedure points on 2026-11-23.
 | New site checked on temporary host (CP2) | Legacy, in CLI maintenance | Writer fence or full shutdown of the new stack (S13); then as CP1 | None | Dev Pass B, including new PHP down and Postgres down |
 | Routes switched, new site in maintenance (CP3) | New, admins only | Routes back with saved patches; then as CP2 | None | Dev Pass B |
 | **Commit point**: new site open (bail-out window) | New | **Second migration** (§14): its own window, checks and commit point | Normally none, but **not guaranteed**: unique-key conflicts (RB08) and ELM deliveries need reconciliation | Dev Pass B, including a failed import, out-of-scope SQL, a failed validation and an abandoned return |
-| Return abandoned before legacy reopens | New, resumed | §14 "Abandon and resume" | None | Dev Pass B |
-| Last resort | Legacy, on the frozen database | Point legacy at the frozen `moodle` | Everything since reopening; ELM reconciled | Dev Pass B |
+| Return abandoned before legacy reopens | New, resumed | §14 "Abandon and resume": an infrastructure-only legacy fence, then resume; legacy cleanup may stay pending (H3) | None; ELM reconciled for the fence interval (V605) | Dev Pass B, with legacy PHP down and with Galera unreachable throughout |
+| Last resort | Legacy, on the frozen database | Point legacy at the frozen `moodle`, only after any pending cleanup and the frozen checksums pass (H3) | Everything since reopening; ELM reconciled | Dev Pass B |
 | After decommission | New | Restore from backups only | n/a | n/a |
 
 During a bail-out window, legacy stays frozen and **running**. Galera is untouched. Redis, Sentinel, redis-proxy, php and web
@@ -427,6 +462,10 @@ run (D1). Legacy cron is at 0, and the site is in CLI maintenance.
   §8.3 says how each item is handled.
 - In legacy, `cachedir` and `tempdir` live under `/var/shared`, and `filecache` and `localrequestdir` on a RAM disk.
 - `filedir` is content-addressed: each file's name is the SHA-1 of its content. It is append-only in normal operation.
+- **Deleted content** (Moodle 4.5, `lib/filestorage/file_system_filedir.php`): when no `files` row references a hash any
+  more, `remove_file()` moves it to `trashdir`. `recover_file()` moves it back automatically if a restored record asks for
+  it. `empty_trash()` deletes all of `trashdir` from the daily file-cleanup task. A file's content is written before its
+  `files` row is inserted. C8's pairing relies on these three facts (V603).
 - Legacy cron also writes a daily `moodledata` `.tar.gz` to `/tmp/file-backups/moodledata` and **keeps only the newest**. It
   is not a retained pre-cutover copy (RB09).
 
@@ -472,9 +511,10 @@ Figures are **requests against quota**, not utilization. Long-running compute:
   - Replace these planning numbers with Pass A's admitted requests if they exist when it is submitted.
 
   **Test needs no request** if it runs **two** Postgres instances during the parallel run (three would need about 2.8 CPU
-  against test's 2.6 free). The test profile is about 2.15 CPU, and 14 GiB of PVCs: moodledata 3, Postgres 2 × 2,
-  repository 3, snapshot destination 3 and Valkey 1, against 18.9 GiB free. It has no restore drill. Test moves to three
-  instances after legacy test is decommissioned. Pass A confirms these numbers.
+  against test's 2.6 free). The test profile is about 2.15 CPU, and **16 GiB** of PVCs: moodledata 3, Postgres 2 × 2,
+  repository 3, snapshot destination **5** (H2, V604) and Valkey 1, against 18.9 GiB free. That is about **93.1 of 96 GiB**
+  (re-checked on 2026-11-24: 78,948 MiB allocated), leaving 2.9 GiB. Nothing in a test return creates a PVC. It has no
+  restore drill. Test moves to three instances after legacy test is decommissioned. Pass A confirms these numbers.
 - **Legacy Galera PVCs:** prod 5 × 10 GiB with about 7.0 GiB free each; test 5 × 7 GiB with 5.1 GiB free each. Both are
   more than twice the database size, which a return needs (§14.0).
 
@@ -515,8 +555,9 @@ Figures are **requests against quota**, not utilization. Long-running compute:
 
   The code is on the `moodle-app-data` PVC, mounted at `/var/www/html`. An environment-variable change restarts the pod,
   and a `subPath` ConfigMap change needs a restart, which is why S8 matters.
-- **Legacy dev is currently broken.** Galera is at 4 of 5 nodes, and both of its Routes point at `maintenance-message`.
-  Pass B needs a healthy legacy dev (Q17).
+- **Legacy dev is not yet a proven rehearsal source.** Galera was at 4 of 5 nodes on 2026-11-18; the StatefulSet reported
+  5 of 5 ready on 2026-11-24, which alone does not prove Galera is healthy. Both of its Routes still point at
+  `maintenance-message`. Pass B needs a healthy legacy dev (Q17).
 - **Course flow automation.** `migrate-courses-between-namespaces.sh` moves courses between namespaces by running `oc exec`
   in the legacy pods. It breaks after the replatform (Q5).
 
@@ -529,8 +570,8 @@ Figures are **requests against quota**, not utilization. Long-running compute:
 | C4 | `psa-moodle-allow-monitoring` uses `podSelector: {}` (confirmed in Phase 0) | It opens ports 9187 and 9253 on **legacy** pods |
 | C5 | No outbound guard | S4 needs the fail-closed guard in §8.2 |
 | C6 | Values, images and hostnames point at a58ce1 | a58ce1 is being retired |
-| C7 | `backup.restoreRehearsal` creates a temporary Postgres cluster | Needs storage headroom |
-| C8 | The pgBackRest repository is on `netapp-block-standard`, and there is no moodledata backup suitable for file storage | S12 needs an off-site copy and verifiable file backups; `netapp-file-standard` does not support snapshots |
+| C7 | `backup.restoreRehearsal` creates a temporary Postgres cluster. `scripts/ops/restore-rehearsal.sh` (lines 63–67) names a source cluster and repository but **no recovery target** | Needs storage headroom; a restore without a target isn't paired with any file set (V603) |
+| C8 | The pgBackRest repository is on `netapp-block-standard`; retention is a count of full backups (`repo1-retention-full: 7`, `count`); there is no moodledata backup suitable for file storage | S12 needs an off-site copy, verifiable file backups and WAL covering every retained file snapshot; `netapp-file-standard` does not support snapshots |
 | C9 | The SMTP egress policy selects only the backup components | Moodle's own email would be blocked after reopening |
 | C10 | Moodle core and plugins are cloned from branch heads | S7 needs exact, per-environment code |
 | C11 | Only the chart's own Route has the 900 s timeout | The public Routes keep 180 s or the 30 s default unless the cutover sets it |
@@ -668,7 +709,7 @@ Each one needs a decision, recorded in §16.
 | Q14 | Who receives alerts, and who is on call? *Legacy's alerts go only to the discontinued Rocket.Chat.* | Monitoring; S12 failure alerts | The owner, by email, until a channel is chosen |
 | Q15 | Are there events to avoid when choosing windows (cohort starts, deadlines)? | Choosing windows | Ask before each window |
 | Q16 | Is copying production personal data to the owner's encrypted laptop acceptable under PSA policy for the migration pipeline? | §13 uses a local pipeline | It was done on 2026-08-26, 2026-11-17 and 2026-11-18; confirm |
-| Q17 | Legacy dev is broken (Galera 4/5, Routes on the maintenance page). Repair it in dev? | Pass B needs a healthy legacy source; S8 needs a restart proof | Repair legacy dev as its own approved dev-only step, after E4 |
+| Q17 | Legacy dev is unproven (Galera 4/5 on 2026-11-18, 5/5 ready on 2026-11-24; Routes on the maintenance page). Check and repair it in dev? | Pass B needs a healthy legacy source; S8 needs a restart proof | Repair legacy dev as its own approved dev-only step, after E4 |
 | Q18 | *Done 2026-11-23 (owner approved): test's health monitor is `MANUAL_MODE=true`. Undo: `oc -n 950003-test set env deploy/pod-health-monitor MANUAL_MODE=false`* | | |
 | Q19 | *Answered 2026-11-23: the owner is the ELM contact for reconciliation (§14.9) and for the first post-opening check* | | |
 | Q20 | *Answered 2026-11-23: site-level administration is frozen during bail-out windows (settings, language strings, plugin configuration); admins are told before each window* | | |
@@ -719,17 +760,39 @@ which happens as its own approved step.
     `haproxy.router.openshift.io/ip_whitelist`, and **defaults to admitting nobody**, so the Route is restricted from
     creation (S15, V505);
   - **HPAs set to min = max** (or disabled) in every migration state (RB04);
-  - `restoreRehearsal` off until storage headroom is confirmed (C7);
+  - `restoreRehearsal` off until storage headroom is confirmed (C7). When used, the restore always takes an explicit
+    target: `--type=time --target=<T − 60 s>` for a paired set, or `--set=<label> --type=immediate` (V603);
   - alert recipients (Q14).
 - **C8, C16:** backups that S12 can rely on (RB10):
-  - pgBackRest, with the final recovery set also copied to the owner's encrypted disk as the off-site copy (Q11);
-  - a moodledata backup suited to **file** storage (G4, V508): daily `rsync --link-dest` snapshots of the referenced file set
-    to a `netapp-file-backup` PVC, 7 retained.
-    - Moodle's file store is content-addressed and append-only, so each snapshot stores only new files: about one full
-      copy plus churn.
-    - Each snapshot is verified (file count, sizes, SHA-1 names) before the oldest is deleted, so at least 6 verified sets
-      always remain, including after a failed or interrupted run.
-    - Sized at 10 GiB in prod (3 in test), with an alert at 80%. The peak space of a real rotation is measured in Pass A;
+  - pgBackRest on `netapp-file-backup`, with the final recovery set also copied to the owner's encrypted disk as the
+    off-site copy (Q11).
+    - **Retention is time-based** (`repo1-retention-full-type: time`, at least **8 days**), so point-in-time recovery
+      reaches the oldest retained file snapshot (V603). A weekly full, daily differential and hourly incremental schedule
+      keeps the repository small; Pass A measures its peak use against the PVC (prod 8 GiB, test 3 GiB).
+  - a moodledata backup suited to **file** storage (G4, V508, V602–V604): a daily `rsync --link-dest` snapshot to a
+    `netapp-file-backup` PVC, 7 retained.
+    - **Contents:** all of the new stack's `filedir` (on the new stack that is the referenced set plus new uploads, so no
+      SQL is needed), **then** `trashdir`, then the durable dataroot items `secret/` and `lang/`. Caches, sessions, temp,
+      locks and `muc/` are excluded.
+    - **Pairing (V603):** the job records its start time T in the snapshot's manifest. The paired database target is
+      **T − 60 s** (clock-skew margin), by point-in-time recovery. Every hash referenced at that time is then in the
+      snapshot's `filedir` or `trashdir`, because Moodle writes content before the `files` row and moves deleted content
+      to `trashdir` (§5.3). The only exception is content deleted **and** purged by the daily trash cleanup during the copy
+      itself; `check-filedir` lists any such hash after a restore.
+    - **Unchanged files are hard links,** so each snapshot stores only content not already in the previous one. Retained
+      space is the live set plus the distinct content deleted or replaced during the retention period.
+    - **Each snapshot is built in `incoming/`,** verified (file count, sizes, SHA-1 names, the durable items' checksums), and
+      only then renamed to its dated name. A run first removes any stale `incoming/` left by an interrupted run.
+    - **Space-aware rotation (V604):** before starting, the job estimates the incoming delta (`rsync --dry-run --stats`)
+      and requires that much free space plus 10% of the volume. If space is short, it deletes the oldest verified sets
+      down to a **floor of 3** and alerts. If that is still not enough, it **fails loudly** without starting, and the
+      older sets stay intact. A verified set is never deleted to make room for an unverified one.
+    - **Sizes and supported churn (H2):** prod 10 GiB, test 5 GiB. Allowing 25% growth of the live set and 10% overhead,
+      that supports about **0.6 GiB a day** (prod) and **0.3 GiB a day** (test) of deleted or replaced content across 8
+      sets (7 retained plus the incoming one).
+    - **Alert at 70%,** and whenever retention falls below 7. The response: grow the PVC (every NetApp class can grow, within
+      the namespace's storage quota), or the owner approves a shorter retention. Phase 1 estimates upload volume from the
+      prod and test dumps (busiest 8-day window) and revises the sizes if that exceeds the allowance.
   - `moodledata-snapshot.sh` fails loudly, or is removed for file-class volumes;
   - every backup Job ends by verifying its artifact.
 - **C9:** an SMTP egress policy for php and cron to `apps.smtp.gov.bc.ca`, rendered only when `moodle.outbound=on`.
@@ -779,6 +842,9 @@ which happens as its own approved step.
 - **Admins on a guarded copy** must not mark real courses complete. Acceptance uses **synthetic** records (§15, RB11).
 - Decide each legacy setting in §5.11 and record the decision in §16.
 - A migrated site gets its own Valkey cache configuration; `muc/config.php` is never copied.
+- **Encryption key (V602):** when `install.enabled=false` (a migrated site, whose key is copied from legacy `secret/`),
+  `config.openshift.php` sets `$CFG->nokeygeneration = true`. A missing or unrestored key then fails loudly
+  (`encryption_nokey`) instead of Moodle generating a new key and leaving encrypted values unreadable.
 
 ### 8.3 Migration and recovery tooling (in `ops/replatform/`; reviewed; deleted after Phase 5)
 **Forward**
@@ -806,7 +872,23 @@ which happens as its own approved step.
   - `secret/` is copied, so values encrypted with Moodle's key stay readable;
   - quarantine folders, `muc/`, caches, sessions, temp, lock and `trashdir` are not copied.
 - `check-filedir`: every referenced `contenthash` exists in the target with the right size, and its SHA-1 equals its name.
-  The known missing files (prod 3, test 9) are listed in `expected-differences.md`.
+  The known missing files (prod 3, test 9) are listed in `expected-differences.md`. After a restore from a snapshot it also
+  checks the restored `trashdir`: a referenced hash found there counts as recoverable, and the restore moves it back into
+  `filedir`.
+
+**Recovery sets (S12, V602, V603)**
+- `recovery-set-manifest`: written by each scheduled backup and by the window's recovery set. It names the database target
+  (backup label, or the snapshot's T − 60 s), the snapshot and its start time T, the durable items, the chart values and
+  image digest, the Secret names, and every checksum.
+- `restore-paired.sh <manifest> <empty target>`: restores the database to the manifest's target with an explicit
+  pgBackRest target, then the snapshot's `filedir` and `trashdir` and the durable items, onto **empty** storage. It never
+  borrows `secret/` or `lang/` from a running source. It ends with `check-filedir`, a login, the language-customisation
+  check and the encryption canary below.
+- **Encryption canary** (dev only): a synthetic value encrypted with `\core\encryption::encrypt()` and stored in a
+  dedicated, synthetic config row before the backup. After the restore, `\core\encryption::decrypt()` must return it.
+  Moodle 4.5 creates a **new** key silently when `secret/key` is missing (`lib/classes/encryption.php`, `get_key()`), so a
+  successful boot alone proves nothing. Migrated installs also set `$CFG->nokeygeneration = true` (§8.2), so a missing key
+  raises `encryption_nokey` instead.
 
 **Safety and state**
 - `state-capture.sh <name>` / `state-restore.sh <name>` (S14): write, or restore exactly, an immutable named capture
@@ -864,23 +946,43 @@ which happens as its own approved step.
 
   The undo reverses each step from the `prereturn` capture: `DB_NAME=moodle`, the original backup target, then
   `REVOKE ALL PRIVILEGES ON moodle_bailout.* FROM 'moodle'@'%'`.
-- `legacy-refence.sh` (V504): points both public Routes at the static fence page, runs `maintenance.php --enable` on legacy
-  (CLI maintenance, which also re-gates cron), and waits for in-flight requests to drain. It always runs before any
-  database switch-back.
+- **Legacy fence for an abandoned return, in two tiers (V504, V601, H3).** `maintenance.php` loads Moodle's configuration
+  and connects to the database before it reads `--enable`, so it can't be the fence when legacy PHP or Galera has failed.
+  - `legacy-fence-infra.sh` (**required; OpenShift API only**): points every legacy Route in the `prereturn` capture at
+    the static fence page, and confirms legacy cron is desired at 0 with 0 pods.
+  - `verify-legacy-fenced.sh` (**no PHP, no SQL**): every legacy Route targets the fence page; legacy cron is at 0 with 0
+    pods; no legacy Job or CronJob that runs Moodle code is active. Legacy php and web may stay running, because nothing
+    reaches them.
+  - `legacy-cleanup.sh` (**best effort**): CLI maintenance on legacy; `bailout-unswitch.sh`; `frozen-checksums.sql`;
+    `DROP DATABASE moodle_bailout` and the import account. It runs each step it can, and writes every step it couldn't
+    run, with the reason, to `pending-cleanup.md` in the window log. Its API-only parts (`DB_NAME=moodle` on the
+    Deployment templates, the backup target) run even when legacy PHP is down; their in-pod proof is recorded as pending.
+    Re-running it later completes the pending steps.
+  - **While `pending-cleanup.md` lists anything:** legacy Routes stay on the fence page, legacy cron stays at 0, and legacy
+    is not reopened, is not a return target, and is not the last resort. The original `moodle` database is preserved.
 - `frozen-checksums.sql`: per-table `CHECKSUM TABLE` of the frozen `moodle`, taken at `prereturn` and compared after any
-  abandoned return (V504).
+  abandoned return (V504). If Galera is unavailable it is deferred, as pending cleanup (V601).
 - `unique-conflicts.md`: how to read and resolve a unique-key failure in the reverse conversion (RB08). Every resolution is
   an owner decision.
 - `quiescence-pg.sql` (RB05; **returns only**, V502): a fresh `pg_stat_activity` read, checked against an allowlist of our
   management sessions. Write counters are reported as supporting evidence only. A failure stops the return; it is never
   part of an abort.
-- `elm-reconcile.md` (DR06): compares three sources between the §13.3 baseline and the §14.1 end-mark:
+- `elm-reconcile.md` (DR06, V605): compares three sources over a reconciliation window:
   - ELM's records of received completions, obtained by the owner as the ELM contact (Q19);
   - Moodle's `course_completions`;
   - `local_psaelmsync_logs`.
 
   It classifies each completion as received and logged, received but not logged (interrupted), logged but not received, or
-  completed but never sent. Ambiguous cases are decided with ELM.
+  completed but never sent. **Nothing is re-sent blindly:** a completion is sent again only after ELM's records show it
+  wasn't received. Ambiguous cases are decided with ELM; anything unresolved after 5 business days goes to the owner, who
+  records the outcome.
+
+  The window depends on how the return ended:
+  - **successful return:** from the §13.3 baseline to the §14.1 end-mark;
+  - **abandoned return:** from the fence start minus a margin (the longest observed cron task or request, at least
+    15 minutes) to the moment the new site resumed. A request or cron task interrupted by the fence can leave a
+    completion saved but never sent, or sent but never logged, and the plugin's `process_course_completion` task does not
+    replay anything (its `execute()` is empty).
 - **Removed in v0.4:** `bailout-swap.sql` / `bailout-unswap.sql` (RB01).
 
 ### 8.4 Full local rehearsal
@@ -941,8 +1043,8 @@ created with `--internal`, so it has no route to the internet.
     one is actually charged to** (DR07). These numbers finalise the D1 request (§5.4).
   - Record the actual Postgres collation (RB08).
   - Exercise:
-    - a pgBackRest backup;
-    - a restore drill;
+    - a pgBackRest backup, and the repository's peak use under the time-based retention schedule (C8);
+    - a restore drill, with an explicit recovery target (C7);
     - pod-kill and PDB behaviour;
     - alerts;
     - **the writer fence and the full shutdown**, and their reverses, with quota measured in each state (RB04, DR04).
@@ -980,15 +1082,36 @@ created with `--internal`, so it has no route to the internet.
     5. the Route restricted before import, and a non-reviewer admin from an allowed address refused;
     6. the cron database proven by the probe while cron stays at 0;
     7. the snapshot rotation, including an interrupted run, and every restore state within the resource budget.
+  - the fifth review's scenarios (V601–V605):
+    1. **an abandoned return with legacy PHP unavailable** for the whole procedure (legacy php scaled to 0 in dev):
+       `legacy-fence-infra.sh` and `verify-legacy-fenced.sh` succeed, the new stack resumes, and `pending-cleanup.md`
+       lists what couldn't run;
+    2. **an abandoned return with Galera unreachable** for the whole procedure. Galera is made unreachable **without
+       stopping or restarting it**: its client Service's selector is patched to match nothing, and the tooling's
+       database target is pointed at a pod that doesn't exist. The new stack resumes; checksums and the drop are recorded
+       as pending. Then restore the Service, re-run `legacy-cleanup.sh`, and prove the frozen `moodle` unchanged;
+    3. the existing abandonment after legacy web validation (scenario 4 above) still passes;
+    4. **ELM after an abandoned return** (mock endpoint): fence while one completion's request is in flight and another
+       has been received but not logged; abandon; reconciliation finds both, re-sends only the unreceived one, and sends
+       nothing twice;
+    5. **snapshot capacity:** replacement activity (upload, then delete or replace, at the supported daily allowance)
+       over a full rotation, an interrupted run, and a space-short run that prunes to the floor and alerts, all within
+       the destination's size. Record the peak space used.
 
   Time everything. From the measured durations, set a **latest-abort time** for each window. **Do this twice cleanly.**
 - **Pass C: production-scale acceptance.**
   - Load the post-fix prod database (through the local pipeline) and the **full referenced prod file set** (about 3 GiB) into
     the new dev stack, with `outbound=off` and `externalEgress=off`.
   - Run §15 and compare page timings with legacy prod.
-  - Demonstrate the S12 combined restore from a **named recovery set**: retrieve it independently, restore it, boot Moodle,
-    and run `check-filedir` and login. Include an upload and a deletion between backup times. Record the time taken and the
-    latest recoverable point.
+  - Demonstrate the S12 combined restore from a **named recovery set** with `restore-paired.sh`: retrieve it
+    independently, restore it **onto empty storage** at the manifest's enforced target, boot Moodle, and run
+    `check-filedir` and login (V602, V603). Include:
+    - an upload and a deletion **on each side** of a snapshot's start time T, and confirm the restored site matches the
+      database at T − 60 s (the deleted file recovered from `trashdir` when its record exists);
+    - a synthetic **language customisation** and the **encryption canary**, both verified after the restore;
+    - `secret/` and `lang/` taken only from the recovery set, never from the running source.
+
+    Record the time taken and the complete-site recovery point (H1).
   - Run a full return at this size and record its duration and storage use (RB07).
 - **Soak for one week:** backups and their verification, alerts, and cron with the guard on and no internet.
 - **Operator checklist:** a one-page checklist per window, kept beside this runbook, so a tired operator doesn't have to
@@ -1210,29 +1333,48 @@ Legacy has **no** outbound guard, so nobody triggers completions during these ch
 
 **This is the return's commit point.** After it, going back to the new stack is another migration.
 
-### 14.9 ELM reconciliation (RB11)
-With ELM (the owner is the contact, Q19), work through `elm-reconcile.md`. It compares ELM's records of what it received
-with Moodle's completion records **and** the local log, between the baseline and the end-mark. That includes requests
-interrupted between sending and logging (DR06). Handle duplicates and gaps as agreed. Legacy does not replay anything
-automatically. Record the outcome.
+### 14.9 ELM reconciliation (RB11, V605)
+**This follows every return attempt that fenced the new stack after the commit point, whether the return succeeded or was
+abandoned.** With ELM (the owner is the contact, Q19), work through `elm-reconcile.md`. It compares ELM's records of what
+it received with Moodle's completion records **and** the local log, over the window for that outcome:
+- **successful return:** between the §13.3 baseline and the §14.1 end-mark;
+- **abandoned return:** from the fence start minus the margin to the new site's resumption.
 
-### Abandon and resume (before 14.8, RB03, V504)
+That includes requests interrupted between sending and logging (DR06). Nothing is re-sent unless ELM's records show it
+wasn't received. Handle duplicates and gaps as agreed. Neither legacy nor the plugin replays anything automatically (the
+plugin's `process_course_completion` task has an empty `execute()`). Record the outcome; after an abandonment this is
+usually a short check with nothing to resolve.
+
+### Abandon and resume (before 14.8, RB03, V504, V601)
 The return can be abandoned at any point before 14.8, losing no work, because no writes were accepted anywhere after the
-fence. **The order matters:**
-1. **Re-fence legacy first** (`legacy-refence.sh`): both public Routes to the static fence page; `maintenance.php --enable`
-   on legacy (CLI maintenance, which also re-gates cron); in-flight requests drained; cron stays at 0;
-2. if 14.6 ran, `bailout-unswitch.sh`;
-3. `frozen-checksums.sql` again: every table of the frozen `moodle` must match the checksums recorded in §14.0;
-4. `DROP DATABASE moodle_bailout` and drop the import account;
-5. `writer-unfence.sh` (plus `full-start.sh` if a full shutdown ran): the normal profile, `outbound=on`, cron on;
-6. `state-restore.sh prereturn` for the Routes, which sends them back to the new stack; then `maintenance.php --disable` on
-   the new site.
+fence. Abandonment must work **even when legacy PHP or Galera is what failed**, so it never waits on either (H3).
+**The order matters:**
+1. **Fence legacy with infrastructure only** (`legacy-fence-infra.sh`): every legacy Route to the static fence page; legacy
+   cron confirmed at 0 with 0 pods.
+2. **`verify-legacy-fenced.sh`** (no PHP, no SQL) must pass. This is the only legacy precondition for resuming.
+3. **Resume the new stack:** `writer-unfence.sh` (plus `full-start.sh` if a full shutdown ran): the normal profile,
+   `outbound=on`, cron on. Then `state-restore.sh prereturn` for the Routes, which sends them back to the new stack, and
+   `maintenance.php --disable` on the new site.
+4. **ELM reconciliation for the fence interval** (§14.9, V605), even though the return was abandoned.
+5. **Legacy cleanup, best effort** (`legacy-cleanup.sh`), each step recorded in `pending-cleanup.md` if it can't run:
+   1. CLI maintenance on legacy (`maintenance.php --enable`), and drain;
+   2. if 14.6 ran, `bailout-unswitch.sh`. Its API-only parts (the `DB_NAME` templates and the backup target) run even with
+      legacy PHP down; the `REVOKE` and the in-pod proofs wait for PHP and Galera;
+   3. `frozen-checksums.sql`: every table of the frozen `moodle` must match the checksums recorded in §14.0;
+   4. `DROP DATABASE moodle_bailout` and drop the import account.
 
-Legacy ends as it was during the bail-out window: frozen, in CLI maintenance, cron at 0, and no Route pointing at it.
+   Steps 5.1 to 5.4 may run in any order the failure allows; the switch-back (5.2) never happens before step 1 has passed.
+   Re-run `legacy-cleanup.sh` once legacy PHP and Galera are available again, until `pending-cleanup.md` is empty.
+
+Legacy ends as it was during the bail-out window: frozen, cron at 0, and no Route pointing at it. Until
+`pending-cleanup.md` is empty it may lack CLI maintenance, may still name `moodle_bailout`, and its frozen database is
+unverified, so it is **not reopened, not a return target and not the last resort** (H3). If the frozen checksums later
+fail to match, stop and treat it as an incident before any further use of legacy.
 
 ### Last resort (owner only)
 If the new site cannot resume and the return cannot complete:
-- legacy goes back on the frozen `moodle` (`bailout-unswitch.sh` if needed), losing all work since reopening;
+- legacy goes back on the frozen `moodle` (`bailout-unswitch.sh` if needed), losing all work since reopening. This requires
+  Galera available and `frozen-checksums.sql` matching (H3);
 - the new stack's database, files and backups are kept for manual recovery;
 - ELM is reconciled for every completion the new site sent (§14.9).
 
@@ -1258,8 +1400,10 @@ If the new site cannot resume and the return cannot complete:
 - **Completion:** only on **synthetic** courses and users, with the guard on, and with the recorded cleanup applied afterwards
   (RB11).
 - **Course flow:** back up a course (`.mbz`) and restore it across environments.
-- **Before opening (S12):** a named recovery set with artifacts read back, checksums, off-site retrieval evidence, scheduled
-  backups with alerts, and the combined restore demonstrated in dev, with its duration.
+- **Before opening (S12):** a named recovery set with its manifest (database target, file snapshot, `secret/` and `lang/`,
+  configuration), artifacts read back, checksums, off-site retrieval evidence, scheduled backups with alerts, and the
+  paired restore onto empty storage demonstrated in dev (language customisation and encryption canary verified), with its
+  duration.
 - **After opening:**
   - a test email is delivered (C9);
   - the first real ELM completion POST succeeds, and ELM confirms receipt (Q3, Q19);
@@ -1306,6 +1450,11 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-23 | **G2** Routes restricted from creation; reviewer-only `siteadmins` in the pre-commit profile (default reviewer: the owner) | Owner |
 | 2026-11-23 | **G3** Three Postgres instances in prod, two in test during its parallel run; no restore drill in prod or test during the parallel run; quota draft 4 → 7 cores, 96 → 144 GiB | Owner |
 | 2026-11-23 | **G4** Moodledata backups as daily `rsync --link-dest` snapshots, 7 retained | Owner |
+| 2026-11-24 | Fifth review: Phase 1 preparation may start. Accept findings V601–V605 into v0.7 | Owner |
+| 2026-11-24 | **V505 residual risk accepted:** a non-reviewer changing data during review is considered practically nonexistent; not a cutover blocker | Owner |
+| 2026-11-24 | **H1** Complete-site recovery point: up to 24 hours if the moodledata volume is lost; minutes if only the database is lost | Owner |
+| 2026-11-24 | **H2** Test's moodledata snapshot destination 5 GiB; test at about 93.1 of 96 GiB during its parallel run; prod quota request unchanged | Owner |
+| 2026-11-24 | **H3** An abandoned return resumes the new site behind an infrastructure-only legacy fence; legacy isn't reopened or used as a fallback until pending cleanup and the frozen checksums complete | Owner |
 
 **Phase 0 findings (2026-11-18):** see [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md).
 The facts that change the plan are folded into §5 and §6.
@@ -1313,8 +1462,9 @@ The facts that change the plan are folded into §5 and §6.
 ## 17. References
 - **Reviews:** [replatform-950003-review.md](replatform-950003-review.md) (v0.1, R1–R12),
   [replatform-950003-rollback-review.md](replatform-950003-rollback-review.md) (v0.3, RB01–RB14) and
-  [replatform-950003-v04-review.md](replatform-950003-v04-review.md) (v0.4, DR01–DR09) and
-  [replatform-950003-v05-review.md](replatform-950003-v05-review.md) (v0.5, V501–V508).
+  [replatform-950003-v04-review.md](replatform-950003-v04-review.md) (v0.4, DR01–DR09),
+  [replatform-950003-v05-review.md](replatform-950003-v05-review.md) (v0.5, V501–V508) and
+  [replatform-950003-v06-review.md](replatform-950003-v06-review.md) (v0.6, V601–V605).
 - **Helm:** [three-way merge](https://helm.sh/docs/faq/changes_since_helm2/#improved-upgrade-strategy-3-way-strategic-merge-patches)
   (an upgrade can restore replicas scaled to 0 outside Helm)
 - **Quota draft:** [quota-request-950003-prod-temporary.md](quota-request-950003-prod-temporary.md)
@@ -1322,13 +1472,20 @@ The facts that change the plan are folded into §5 and §6.
   [quota scopes](https://kubernetes.io/docs/concepts/policy/resource-quotas/#quota-scopes) (`Terminating` needs a pod-level
   `activeDeadlineSeconds`)
 - **Phase 0:** [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md)
-- **Moodle:** [Administration via command line, Maintenance mode (4.5)](https://docs.moodle.org/405/en/Administration_via_command_line#Maintenance_mode)
+- **Moodle:** [Administration via command line, Maintenance mode (4.5)](https://docs.moodle.org/405/en/Administration_via_command_line#Maintenance_mode);
+  `MOODLE_405_STABLE` source: [`lib/filestorage/file_system_filedir.php`](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/lib/filestorage/file_system_filedir.php)
+  (`remove_file()`, `recover_file()`, `empty_trash()`) and
+  [`lib/classes/encryption.php`](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/lib/classes/encryption.php)
+  (`get_key()`, `nokeygeneration`)
 - **MariaDB:** [RENAME TABLE](https://mariadb.com/docs/server/reference/sql-statements/data-definition/rename-table) (tables
   with triggers can't change database);
   [mariadb-dump options](https://mariadb.com/docs/server/clients-and-utilities/backup-restore-and-import-clients/mariadb-dump)
   (`--databases` adds `CREATE DATABASE` and `USE`)
 - **PostgreSQL 15:** [statistics](https://www.postgresql.org/docs/15/monitoring-stats.html),
-  [collation](https://www.postgresql.org/docs/15/collation.html)
+  [collation](https://www.postgresql.org/docs/15/collation.html),
+  [continuous archiving and point-in-time recovery](https://www.postgresql.org/docs/15/continuous-archiving.html)
+- **rsync:** [`--link-dest`](https://rsync.samba.org/ftp/rsync/rsync.1.html) (files are hard-linked only when their
+  preserved attributes match)
 - **Crunchy:** [administrative tasks](https://access.crunchydata.com/documentation/postgres-operator/latest/tutorials/cluster-management/administrative-tasks)
   (`spec.shutdown`)
 - **Platform docs** (`../platform-developer-docs/src/docs/`):

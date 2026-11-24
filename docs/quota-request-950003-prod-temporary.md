@@ -1,6 +1,7 @@
 # Temporary quota request — 950003-prod (replatform parallel run)
 
-> **DRAFT, 2026-11-23 (revised for the v0.5 review, V507/V508). Not submitted.** It supports decision D1 in
+> **DRAFT, 2026-11-24 (revised for the v0.5 review, V507/V508; v0.6 review wording only, figures unchanged). Not
+> submitted.** It supports decision D1 in
 > [replatform-950003-runbook.md](replatform-950003-runbook.md). The new stack's figures are
 > planning numbers, from the a58ce1 PoC's admitted requests scaled to the prod shape. Replace them with dev Pass A's
 > admitted requests if those exist by submission time.
@@ -75,8 +76,8 @@ requests in total, fits the existing 32 GiB.
 |---|---|---:|---|
 | Moodle data (RWX) | `netapp-file-standard` | 6 | 2.93 GiB of referenced files today, plus growth |
 | Postgres data | `netapp-block-standard` | 3 × 5 | Database is about 1 GiB today; WAL and vacuum headroom; three instances |
-| pgBackRest repository | `netapp-file-backup` | 8 | Full and incremental backups plus WAL; class backed up by OCIO |
-| Moodle data backup destination | `netapp-file-backup` | 10 | Daily `rsync --link-dest` snapshots, 7 retained. Moodle's file store is content-addressed and append-only, so each snapshot stores only new files (one full copy, about 2.9 GiB, plus churn). Alert at 80% |
+| pgBackRest repository | `netapp-file-backup` | 8 | Weekly full, daily differential and hourly incremental backups plus WAL, with 8 days of point-in-time recovery; class backed up by OCIO |
+| Moodle data backup destination | `netapp-file-backup` | 10 | Daily `rsync --link-dest` snapshots of the file store and Moodle's key and language folders, 7 retained. Unchanged files are hard links, so the volume holds one full copy (about 2.9 GiB) plus about 0.6 GiB a day of replaced content. The backup job checks free space before each run; alert at 70% |
 | Valkey | `netapp-file-standard` | 1 | Cache persistence |
 | **Total** | | **40** | |
 
