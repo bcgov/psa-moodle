@@ -36,6 +36,9 @@ MARK="<!-- rp-backup-fence run=$RUN_ID -->"
 FENCE="$MOODLEDATA/climaintenance.html"
 STAGE="$DEST/incoming/$RUN_ID"
 SETS="$DEST/sets"
+# Lines of file $1 whose first field is not a line of file $2. Safe when $2 is empty or missing, unlike busybox
+# `grep -vxF -f` (which then matches everything) and awk's two-file idiom (which breaks on an empty first file).
+minus() { awk -v ex="$2" 'BEGIN { while ((getline l < ex) > 0) x[l] = 1 } !($1 in x)' "$1"; }
 log() { printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "$RUN_ID" "$*"; }
 alert() { log "ALERT: $1"; command -v alert.sh >/dev/null && [ -n "${ALERT_TO:-}" ] && alert.sh "psa-moodle moodledata backup: $1" "${2:-$1}" || true; }
 die() { alert "$1" "${2:-}"; exit 1; }
@@ -85,8 +88,7 @@ guard rotation
 pq "SELECT DISTINCT contenthash, filesize FROM mdl_files WHERE filename <> '.'" | tr '|' '\t' | sort > "$DEST/incoming/.sizes-$RUN_ID"
 if [ -n "$prev_dir" ]; then
   # (awk, not join/comm: the ops image's busybox has neither)
-  delta=$(awk -F'\t' 'NR == FNR { seen[$1] = 1; next } !($1 in seen) { s += $2 } END { print s + 0 }' \
-    "$prev_dir/inventory.txt" "$DEST/incoming/.sizes-$RUN_ID")
+  delta=$(minus "$DEST/incoming/.sizes-$RUN_ID" "$prev_dir/inventory.txt" | awk -F'\t' '{ s += $2 } END { print s + 0 }')
 else
   delta=$(awk -F'\t' '{s+=$2} END{print s+0}' "$DEST/incoming/.sizes-$RUN_ID")
 fi
@@ -129,7 +131,12 @@ log "inventory: $(wc -l < "$STAGE/inventory.txt") hashes"
 
 # ---- 6. capture -------------------------------------------------------------------------------------------------------------
 cap_start=$SECONDS; copied=0; : > "$STAGE/source-gaps.txt"
-if [ -n "$prev_dir" ]; then awk 'NR == FNR { seen[$1] = 1; next } !($1 in seen)' "$prev_dir/inventory.txt" "$STAGE/inventory.txt" > "$STAGE/.new"; else cp "$STAGE/inventory.txt" "$STAGE/.new"; fi
+# To copy: every inventory hash the previous set doesn't actually hold (its inventory minus its source gaps), so a
+# hash that was a gap last night is looked for again tonight.
+if [ -n "$prev_dir" ]; then
+  minus "$prev_dir/inventory.txt" "$prev_dir/source-gaps.txt" > "$STAGE/.prevheld"
+  minus "$STAGE/inventory.txt" "$STAGE/.prevheld" > "$STAGE/.new"; rm -f "$STAGE/.prevheld"
+else cp "$STAGE/inventory.txt" "$STAGE/.new"; fi
 while read -r h; do
   [ $((SECONDS - cap_start)) -ge "$CAPTURE_LIMIT" ] && { reopen; die "capture limit reached after $copied files: skipped tonight"; }
   rel="${h:0:2}/${h:2:2}/$h"; src=""
@@ -160,12 +167,26 @@ if [ -n "$prev_dir" ]; then
     if [ -e "$prev_dir/filedir/$rel" ]; then mkdir -p "$STAGE/filedir/${h:0:2}/${h:2:2}"; ln "$prev_dir/filedir/$rel" "$STAGE/filedir/$rel"; fi
   done < "$STAGE/inventory.txt"
 fi
-missing=$(while read -r h; do [ -e "$STAGE/filedir/${h:0:2}/${h:2:2}/$h" ] || echo "$h"; done < "$STAGE/inventory.txt" \
-  | { grep -vxF -f "$STAGE/source-gaps.txt" || true; } | wc -l | tr -d ' ')   # grep finding nothing is success here
+while read -r h; do [ -e "$STAGE/filedir/${h:0:2}/${h:2:2}/$h" ] || echo "$h"; done < "$STAGE/inventory.txt" > "$STAGE/.absent"
+# A hash the previous set should have held but doesn't (a damaged set) is fetched from the live site now. Content is
+# fixed by its hash, so a copy taken after the pause is the same bytes; the SHA-1 check proves it.
+healed=0
+for h in $(minus "$STAGE/.absent" "$STAGE/source-gaps.txt"); do
+  rel="${h:0:2}/${h:2:2}/$h"
+  for src in "$MOODLEDATA/filedir/$rel" "$MOODLEDATA/trashdir/$rel"; do
+    [ -f "$src" ] || continue
+    mkdir -p "$STAGE/filedir/${h:0:2}/${h:2:2}"; cp "$src" "$STAGE/filedir/$rel"
+    if [ "$(sha1sum "$STAGE/filedir/$rel" | cut -d' ' -f1)" = "$h" ]; then healed=$((healed + 1)); break; fi
+    rm -f "$STAGE/filedir/$rel"
+  done
+done
+[ "$healed" = 0 ] || alert "the previous set lacked $healed file(s) it should hold; fetched from the live site and verified"
+while read -r h; do [ -e "$STAGE/filedir/${h:0:2}/${h:2:2}/$h" ] || echo "$h"; done < "$STAGE/inventory.txt" > "$STAGE/.absent"
+missing=$(minus "$STAGE/.absent" "$STAGE/source-gaps.txt" | wc -l | tr -d ' '); rm -f "$STAGE/.absent"
 [ "$missing" = 0 ] || die "coverage: $missing inventory hashes missing from the set (not source gaps): not published; staging kept at $STAGE"
 gaps=$(wc -l < "$STAGE/source-gaps.txt" | tr -d ' ')
 known=${KNOWN_GAPS_FILE:-/dev/null}
-newgaps=$({ grep -vxF -f "$known" "$STAGE/source-gaps.txt" 2>/dev/null || true; } | wc -l | tr -d ' ')
+newgaps=$(minus "$STAGE/source-gaps.txt" "$known" | wc -l | tr -d ' ')
 [ "$newgaps" = 0 ] || alert "live site lacks $newgaps referenced file(s) not in the known list (source gaps; set still published)"
 
 # ---- 9. database gate (V804) ------------------------------------------------------------------------------------------------

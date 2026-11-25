@@ -1276,7 +1276,16 @@ created with `--internal`, so it has no route to the internet.
    local superuser): the site reopened at the 5-minute limit, alert, night skipped; archive behind the restore point: not
    published, previous sets kept, staging kept for diagnosis; rotation to the retention limit works. Fixed on the way:
    the drain counts only client sessions; the job must run as the php pods' UID (`secret/key` is mode 0400), which
-   OpenShift's namespace default UID gives both; busybox has no `join`/`comm`. Still to test: the V801 sequence with
+   OpenShift's namespace default UID gives both; busybox has no `join`/`comm`. **A silent-failure bug, found and fixed
+   the same day:** busybox `grep -vxF -f <empty file>` matches every line (GNU grep matches none), so once a set's gap
+   list was empty its coverage check could not fail. Every set difference now uses one `awk` helper that is safe with
+   empty files, "what to copy" is the inventory minus what the previous set actually holds (so last night's gaps are
+   looked for again), and a hash missing from a damaged previous set is fetched from the live site, SHA-1-checked, and
+   alerted. Proven: a file deleted from the previous set made the next run refuse to publish; with self-healing, the
+   following night fetched it and published. **Restore of the file half** (`scripts/ops/restore-set-files.sh`): onto an
+   empty volume in 13 s, 8,711 files, SHA-1 all correct, coverage and the `secret/`/`lang/` checksums verified; Moodle
+   booted on it with `nokeygeneration` found every referenced file but the 62 known and decrypted with the restored key.
+   Still to test: the V801 sequence with
    live file activity during the pause, a killed run (cron-loop clean-up), and the real pgBackRest gate. Cases:
    1. **the pause:** web requests get the maintenance page without opening a database connection; the cron loop starts no
       `cron.php`; a request still running when the pause starts holds the drain until it ends; each 5-minute limit reopens
