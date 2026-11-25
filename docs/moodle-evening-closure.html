@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moodle Evening Closure</title>
+<style>
+/* Layout: one reading column, a single figure up top, the chart as the centrepiece, the ask boxed at the end. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #151a21;
+  --ink-2: #48505c;
+  --muted: #6a7280;
+  --rule: #dde2e9;
+  --band: #e9eef6;
+  --accent: #2a78d6;
+  --ask: #eaf2fc;
+  --font: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Roboto, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111419; --surface: #181c22; --ink: #eef0f3; --ink-2: #b8bfca; --muted: #8b93a0;
+    --rule: #2b313b; --band: #1e2530; --accent: #3987e5; --ask: #18263a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111419; --surface: #181c22; --ink: #eef0f3; --ink-2: #b8bfca; --muted: #8b93a0;
+  --rule: #2b313b; --band: #1e2530; --accent: #3987e5; --ask: #18263a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--font);
+  padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 760px; margin: 0 auto; display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+h1 { font-size: clamp(28px, 5vw, 38px); line-height: 1.15; margin: 0; text-wrap: balance; font-weight: 700; }
+h2 { font-size: 20px; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 65ch; }
+.lede { font-size: 18px; color: var(--ink-2); }
+section { display: grid; gap: 14px; min-width: 0; }
+.hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; padding-block: 20px;
+  border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.hero .figure { font-size: 64px; line-height: 1; font-weight: 700; letter-spacing: -0.02em; }
+.hero p { flex: 1 1 280px; color: var(--ink-2); }
+.figure-wrap { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 16px 10px; display: grid; gap: 8px; }
+.figure-wrap h2 { font-size: 16px; }
+.figure-wrap .sub { color: var(--muted); font-size: 14px; }
+.scroll { overflow-x: auto; }
+.chart { display: block; width: 100%; min-width: 560px; height: auto; font-family: var(--font); }
+.chart .band { fill: var(--band); }
+.chart .band-label { fill: var(--ink-2); font-size: 13px; font-weight: 600; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+.chart .axis { stroke: var(--muted); stroke-width: 1; }
+.chart .tick { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart .axis-title { fill: var(--muted); font-size: 12px; }
+.chart .value { fill: var(--ink); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart .bar { fill: var(--accent); }
+.chart .hit { fill: transparent; }
+.chart .slot:hover .bar { opacity: 0.75; }
+.chart .slot:hover .hit { fill: var(--ink); fill-opacity: 0.04; }
+ul.facts { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 65ch; }
+ul.facts strong { font-variant-numeric: tabular-nums; }
+ol.steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; max-width: 65ch; }
+details { border-top: 1px solid var(--rule); padding-top: 10px; }
+summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 10px; }
+th, td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--rule); }
+th[scope="row"], thead th:first-child { text-align: left; font-weight: 400; }
+thead th { font-weight: 600; color: var(--ink-2); vertical-align: bottom; }
+tr.closed { background: var(--band); }
+.ask { background: var(--ask); border-radius: 8px; padding: 20px; display: grid; gap: 10px; }
+.ask p { color: var(--ink); }
+.source { font-size: 13px; color: var(--muted); display: grid; gap: 6px; border-top: 1px solid var(--rule); padding-top: 16px; }
+.source p { max-width: none; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Proposal · 25 November 2026</p>
+    <h1>Close Moodle from 5 pm to 1 am until the new year</h1>
+    <p class="lede">We are replacing the platform the Moodle learning site runs on. Each step of that work needs the site
+      closed. Usage data shows almost nobody uses Moodle in the evening, so a standing evening closure would let the work
+      go ahead as soon as each step is ready, with almost no one affected.</p>
+  </header>
+
+  <div class="hero">
+    <span class="figure">2%</span>
+    <p>of all activity on the learning site in the last eight weeks happened between 5 pm and 1 am. No evening hour in
+      that time had more than 4 people on the site.</p>
+  </div>
+
+  <section>
+    <div class="figure-wrap">
+      <h2>People using the learning site, by hour, on an average weekday</h2>
+      <p class="sub">1 October to 24 November 2026, Pacific time. Hover over a bar for that hour's busiest day.</p>
+      <div class="scroll">
+<svg viewBox="0 0 760 300" role="img" aria-labelledby="chart-title chart-desc" class="chart">
+<title id="chart-title">Average number of people using Moodle in each hour, weekdays</title>
+<desc id="chart-desc">Weekdays from 1 October to 24 November 2026. Use peaks at 36 people at 9 am, falls to about 11 at 4 pm, about 1 at 5 pm, and stays below 1 per hour from 6 pm until 7 am. The proposed closure, 5 pm to 1 am, is shaded.</desc>
+<rect class="band" x="366.7" y="12" width="234.7" height="248"/>
+<text class="band-label" x="374.7" y="26">Proposed closure, 5 pm to 1 am</text>
+<line class="grid" x1="44" x2="748" y1="260.0" y2="260.0"/>
+<text class="tick" x="36" y="264.0" text-anchor="end">0</text>
+<line class="grid" x1="44" x2="748" y1="203.5" y2="203.5"/>
+<text class="tick" x="36" y="207.5" text-anchor="end">10</text>
+<line class="grid" x1="44" x2="748" y1="147.0" y2="147.0"/>
+<text class="tick" x="36" y="151.0" text-anchor="end">20</text>
+<line class="grid" x1="44" x2="748" y1="90.5" y2="90.5"/>
+<text class="tick" x="36" y="94.5" text-anchor="end">30</text>
+<line class="grid" x1="44" x2="748" y1="34.0" y2="34.0"/>
+<text class="tick" x="36" y="38.0" text-anchor="end">40</text>
+<g class="slot"><title>6 am to 7 am, weekdays: 0.5 people on average; most on any one day 4</title><rect class="hit" x="44.0" y="34" width="29.3" height="226"/>
+<path class="bar" d="M48.7,260.0 V260.0 Q48.7,257.1 51.6,257.1 H65.8 Q68.6,257.1 68.6,260.0 V260.0 Z"/>
+</g>
+<text class="tick" x="58.7" y="278" text-anchor="middle">6 am</text>
+<g class="slot"><title>7 am to 8 am, weekdays: 3.3 people on average; most on any one day 11</title><rect class="hit" x="73.3" y="34" width="29.3" height="226"/>
+<path class="bar" d="M78.0,260.0 V245.2 Q78.0,241.2 82.0,241.2 H94.0 Q98.0,241.2 98.0,245.2 V260.0 Z"/>
+</g>
+<g class="slot"><title>8 am to 9 am, weekdays: 19.6 people on average; most on any one day 66</title><rect class="hit" x="102.7" y="34" width="29.3" height="226"/>
+<path class="bar" d="M107.4,260.0 V153.1 Q107.4,149.1 111.4,149.1 H123.3 Q127.3,149.1 127.3,153.1 V260.0 Z"/>
+</g>
+<text class="tick" x="117.3" y="278" text-anchor="middle">8 am</text>
+<g class="slot"><title>9 am to 10 am, weekdays: 35.7 people on average; most on any one day 135</title><rect class="hit" x="132.0" y="34" width="29.3" height="226"/>
+<path class="bar" d="M136.7,260.0 V62.2 Q136.7,58.2 140.7,58.2 H152.6 Q156.6,58.2 156.6,62.2 V260.0 Z"/>
+</g>
+<text class="value" x="146.7" y="52.2" text-anchor="middle">36</text>
+<g class="slot"><title>10 am to 11 am, weekdays: 34.1 people on average; most on any one day 227</title><rect class="hit" x="161.3" y="34" width="29.3" height="226"/>
+<path class="bar" d="M166.0,260.0 V71.4 Q166.0,67.4 170.0,67.4 H182.0 Q186.0,67.4 186.0,71.4 V260.0 Z"/>
+</g>
+<text class="tick" x="176.0" y="278" text-anchor="middle">10 am</text>
+<g class="slot"><title>11 am to noon, weekdays: 22.4 people on average; most on any one day 99</title><rect class="hit" x="190.7" y="34" width="29.3" height="226"/>
+<path class="bar" d="M195.4,260.0 V137.2 Q195.4,133.2 199.4,133.2 H211.3 Q215.3,133.2 215.3,137.2 V260.0 Z"/>
+</g>
+<g class="slot"><title>noon to 1 pm, weekdays: 12.9 people on average; most on any one day 36</title><rect class="hit" x="220.0" y="34" width="29.3" height="226"/>
+<path class="bar" d="M224.7,260.0 V190.8 Q224.7,186.8 228.7,186.8 H240.6 Q244.6,186.8 244.6,190.8 V260.0 Z"/>
+</g>
+<text class="tick" x="234.7" y="278" text-anchor="middle">noon</text>
+<g class="slot"><title>1 pm to 2 pm, weekdays: 16.8 people on average; most on any one day 31</title><rect class="hit" x="249.3" y="34" width="29.3" height="226"/>
+<path class="bar" d="M254.0,260.0 V169.0 Q254.0,165.0 258.0,165.0 H270.0 Q274.0,165.0 274.0,169.0 V260.0 Z"/>
+</g>
+<g class="slot"><title>2 pm to 3 pm, weekdays: 18.4 people on average; most on any one day 34</title><rect class="hit" x="278.7" y="34" width="29.3" height="226"/>
+<path class="bar" d="M283.4,260.0 V160.2 Q283.4,156.2 287.4,156.2 H299.3 Q303.3,156.2 303.3,160.2 V260.0 Z"/>
+</g>
+<text class="tick" x="293.3" y="278" text-anchor="middle">2 pm</text>
+<g class="slot"><title>3 pm to 4 pm, weekdays: 19.1 people on average; most on any one day 36</title><rect class="hit" x="308.0" y="34" width="29.3" height="226"/>
+<path class="bar" d="M312.7,260.0 V155.8 Q312.7,151.8 316.7,151.8 H328.6 Q332.6,151.8 332.6,155.8 V260.0 Z"/>
+</g>
+<g class="slot"><title>4 pm to 5 pm, weekdays: 11.2 people on average; most on any one day 20</title><rect class="hit" x="337.3" y="34" width="29.3" height="226"/>
+<path class="bar" d="M342.0,260.0 V200.6 Q342.0,196.6 346.0,196.6 H358.0 Q362.0,196.6 362.0,200.6 V260.0 Z"/>
+</g>
+<text class="tick" x="352.0" y="278" text-anchor="middle">4 pm</text>
+<g class="slot"><title>5 pm to 6 pm, weekdays: 1.3 people on average; most on any one day 4</title><rect class="hit" x="366.7" y="34" width="29.3" height="226"/>
+<path class="bar" d="M371.4,260.0 V256.9 Q371.4,252.9 375.4,252.9 H387.3 Q391.3,252.9 391.3,256.9 V260.0 Z"/>
+</g>
+<text class="value" x="381.3" y="246.9" text-anchor="middle">1.3</text>
+<g class="slot"><title>6 pm to 7 pm, weekdays: 0.2 people on average; most on any one day 1</title><rect class="hit" x="396.0" y="34" width="29.3" height="226"/>
+<path class="bar" d="M400.7,260.0 V260.0 Q400.7,258.8 401.9,258.8 H419.5 Q420.6,258.8 420.6,260.0 V260.0 Z"/>
+</g>
+<text class="tick" x="410.7" y="278" text-anchor="middle">6 pm</text>
+<g class="slot"><title>7 pm to 8 pm, weekdays: 0.3 people on average; most on any one day 2</title><rect class="hit" x="425.3" y="34" width="29.3" height="226"/>
+<path class="bar" d="M430.0,260.0 V260.0 Q430.0,258.1 431.9,258.1 H448.1 Q450.0,258.1 450.0,260.0 V260.0 Z"/>
+</g>
+<g class="slot"><title>8 pm to 9 pm, weekdays: 0.2 people on average; most on any one day 1</title><rect class="hit" x="454.7" y="34" width="29.3" height="226"/>
+<path class="bar" d="M459.4,260.0 V260.0 Q459.4,259.0 460.4,259.0 H478.3 Q479.3,259.0 479.3,260.0 V260.0 Z"/>
+</g>
+<text class="tick" x="469.3" y="278" text-anchor="middle">8 pm</text>
+<g class="slot"><title>9 pm to 10 pm, weekdays: 0.5 people on average; most on any one day 2</title><rect class="hit" x="484.0" y="34" width="29.3" height="226"/>
+<path class="bar" d="M488.7,260.0 V260.0 Q488.7,257.4 491.3,257.4 H506.0 Q508.6,257.4 508.6,260.0 V260.0 Z"/>
+</g>
+<g class="slot"><title>10 pm to 11 pm, weekdays: 0.2 people on average; most on any one day 2</title><rect class="hit" x="513.3" y="34" width="29.3" height="226"/>
+<path class="bar" d="M518.0,260.0 V260.0 Q518.0,258.8 519.2,258.8 H536.8 Q538.0,258.8 538.0,260.0 V260.0 Z"/>
+</g>
+<text class="tick" x="528.0" y="278" text-anchor="middle">10 pm</text>
+<g class="slot"><title>11 pm to midnight, weekdays: 0.1 people on average; most on any one day 1</title><rect class="hit" x="542.7" y="34" width="29.3" height="226"/>
+</g>
+<g class="slot"><title>midnight to 1 am, weekdays: 0.1 people on average; most on any one day 1</title><rect class="hit" x="572.0" y="34" width="29.3" height="226"/>
+<path class="bar" d="M576.7,260.0 V260.0 Q576.7,259.2 577.5,259.2 H595.8 Q596.6,259.2 596.6,260.0 V260.0 Z"/>
+</g>
+<text class="tick" x="586.7" y="278" text-anchor="middle">midnight</text>
+<g class="slot"><title>1 am to 2 am, weekdays: 0.1 people on average; most on any one day 1</title><rect class="hit" x="601.3" y="34" width="29.3" height="226"/>
+</g>
+<g class="slot"><title>2 am to 3 am, weekdays: 0.1 people on average; most on any one day 1</title><rect class="hit" x="630.7" y="34" width="29.3" height="226"/>
+</g>
+<text class="tick" x="645.3" y="278" text-anchor="middle">2 am</text>
+<g class="slot"><title>3 am to 4 am, weekdays: 0.0 people on average; most on any one day 1</title><rect class="hit" x="660.0" y="34" width="29.3" height="226"/>
+</g>
+<g class="slot"><title>4 am to 5 am, weekdays: 0.0 people on average; most on any one day 1</title><rect class="hit" x="689.3" y="34" width="29.3" height="226"/>
+</g>
+<text class="tick" x="704.0" y="278" text-anchor="middle">4 am</text>
+<g class="slot"><title>5 am to 6 am, weekdays: 0.0 people on average; most on any one day 1</title><rect class="hit" x="718.7" y="34" width="29.3" height="226"/>
+</g>
+<line class="axis" x1="44" x2="748" y1="260.0" y2="260.0"/>
+<text class="axis-title" x="44" y="26">People</text>
+</svg>
+      </div>
+      <details>
+        <summary>Show the hourly figures</summary>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr><th scope="col">Hour</th><th scope="col">Weekday average</th><th scope="col">Most on any weekday</th>
+                <th scope="col">Weekend average</th><th scope="col">Most on any weekend day</th></tr>
+            </thead>
+            <tbody>
+<tr><th scope="row">6 am to 7 am</th><td>0.5</td><td>4</td><td>0.0</td><td>0</td></tr>
+<tr><th scope="row">7 am to 8 am</th><td>3.3</td><td>11</td><td>0.1</td><td>1</td></tr>
+<tr><th scope="row">8 am to 9 am</th><td>19.6</td><td>66</td><td>0.2</td><td>1</td></tr>
+<tr><th scope="row">9 am to 10 am</th><td>35.7</td><td>135</td><td>0.3</td><td>1</td></tr>
+<tr><th scope="row">10 am to 11 am</th><td>34.1</td><td>227</td><td>0.2</td><td>2</td></tr>
+<tr><th scope="row">11 am to noon</th><td>22.4</td><td>99</td><td>0.3</td><td>2</td></tr>
+<tr><th scope="row">noon to 1 pm</th><td>12.9</td><td>36</td><td>0.2</td><td>1</td></tr>
+<tr><th scope="row">1 pm to 2 pm</th><td>16.8</td><td>31</td><td>0.2</td><td>1</td></tr>
+<tr><th scope="row">2 pm to 3 pm</th><td>18.4</td><td>34</td><td>0.2</td><td>1</td></tr>
+<tr><th scope="row">3 pm to 4 pm</th><td>19.1</td><td>36</td><td>0.3</td><td>2</td></tr>
+<tr><th scope="row">4 pm to 5 pm</th><td>11.2</td><td>20</td><td>0.2</td><td>1</td></tr>
+<tr class=closed><th scope="row">5 pm to 6 pm</th><td>1.3</td><td>4</td><td>0.2</td><td>2</td></tr>
+<tr class=closed><th scope="row">6 pm to 7 pm</th><td>0.2</td><td>1</td><td>0.3</td><td>1</td></tr>
+<tr class=closed><th scope="row">7 pm to 8 pm</th><td>0.3</td><td>2</td><td>0.4</td><td>2</td></tr>
+<tr class=closed><th scope="row">8 pm to 9 pm</th><td>0.2</td><td>1</td><td>0.2</td><td>1</td></tr>
+<tr class=closed><th scope="row">9 pm to 10 pm</th><td>0.5</td><td>2</td><td>0.3</td><td>1</td></tr>
+<tr class=closed><th scope="row">10 pm to 11 pm</th><td>0.2</td><td>2</td><td>0.2</td><td>1</td></tr>
+<tr class=closed><th scope="row">11 pm to midnight</th><td>0.1</td><td>1</td><td>0.1</td><td>1</td></tr>
+<tr class=closed><th scope="row">midnight to 1 am</th><td>0.1</td><td>1</td><td>0.1</td><td>1</td></tr>
+<tr><th scope="row">1 am to 2 am</th><td>0.1</td><td>1</td><td>0.0</td><td>0</td></tr>
+<tr><th scope="row">2 am to 3 am</th><td>0.1</td><td>1</td><td>0.1</td><td>1</td></tr>
+<tr><th scope="row">3 am to 4 am</th><td>0.0</td><td>1</td><td>0.1</td><td>1</td></tr>
+<tr><th scope="row">4 am to 5 am</th><td>0.0</td><td>1</td><td>0.0</td><td>0</td></tr>
+<tr><th scope="row">5 am to 6 am</th><td>0.0</td><td>1</td><td>0.0</td><td>0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the numbers show</h2>
+    <ul class="facts">
+      <li><strong>Daytime is busy.</strong> Between 8 am and 4 pm on a weekday, 13 to 36 people use the site in an average
+        hour. The busiest single hour had 227.</li>
+      <li><strong>Evenings are nearly empty.</strong> About 1 person uses the site between 5 and 6 pm, and fewer than 1
+        an hour after that. The whole 5 pm to 1 am period adds up to about 3 person-hours of use on a typical weekday.</li>
+      <li><strong>No evening had more than 4 people in any hour</strong> across eight weeks. Most evenings, one or two
+        people visit briefly.</li>
+      <li><strong>Weekends are quiet all day,</strong> with at most 2 people in any hour.</li>
+      <li><strong>The course-development (test) site is quieter still:</strong> 251 recorded actions in eight weeks, never
+        more than 2 people in an hour, and one person, once, after 5 pm.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Why an evening closure helps</h2>
+    <ul class="facts">
+      <li><strong>The work moves faster.</strong> The replacement happens in steps: moving the test site, then the learning
+        site, and moving back if anything goes wrong. With a standing closure, each step can start at 5 pm on the first
+        evening it is ready, without arranging and announcing a separate outage.</li>
+      <li><strong>The work is safer.</strong> Each step has hours instead of minutes, so nothing is rushed. Nobody is in
+        the middle of a quiz or an upload when the site changes.</li>
+      <li><strong>Users get a predictable schedule.</strong> The same hours every evening are easier to plan around than
+        occasional unscheduled outages.</li>
+      <li><strong>It addresses a real risk.</strong> The current database needed an 8-hour manual recovery in May 2026.
+        The replacement removes that design, and the sooner it is finished the sooner that risk is gone.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>What users will see</h2>
+    <p>Moodle's standard maintenance page, saying the site reopens at 1 am. Anything saved before 5 pm is kept.
+      Background work, such as reporting course completions to ELM, resumes when the site reopens.</p>
+  </section>
+
+  <section>
+    <h2>Before the first closure</h2>
+    <ol class="steps">
+      <li>Tell users with a banner on the site and an email a few days ahead.</li>
+      <li>Check that no quiz or assignment closes between 5 pm and 1 am before the new year, and move any that do.</li>
+      <li>Confirm that completions reaching ELM a few hours later than usual is acceptable.</li>
+      <li>Agree who can cancel the closure for a particular evening if someone needs the site.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>After January: a permanent evening window?</h2>
+    <p>The same pattern would make a permanent nightly maintenance window inexpensive: platform updates, security patches
+      and backups could all happen without touching the working day. Before proposing that, we would check:</p>
+    <ul class="facts">
+      <li>a full year of usage, because mandatory-training deadlines and the fiscal year-end may look different from
+        October and November;</li>
+      <li>whether any evening users, such as shift workers, have a real need for the site at those hours;</li>
+      <li>what the business owner and learners expect from the service.</li>
+    </ul>
+    <p>The query behind this page can cover the past year with no extra effort.</p>
+  </section>
+
+  <section class="ask">
+    <h2>The ask</h2>
+    <p>Approve closing the Moodle learning site and the course-development site every day from 5 pm to 1 am Pacific,
+      starting once approved and ending on 31 December 2026.</p>
+  </section>
+
+  <footer class="source">
+    <p><strong>Source.</strong> Moodle's own activity log on the production site: every action by a signed-in person
+      through the website or its apps, counted by hour in Pacific time, 1 October to 24 November 2026 (39 weekdays and
+      16 weekend days, 147,696 actions). "People" means different signed-in accounts active in that hour. The test site
+      covers the eight weeks before its maintenance period began on 18 November.</p>
+    <p>The web server's access logs for 23 to 25 November show the same pattern. Figures were gathered on 25 November
+      2026 with read-only queries; no personal information is included.</p>
+  </footer>
+</main>
+</body>
+</html>
