@@ -8,7 +8,7 @@
 #
 # Built non-root. SCC reassigns UID at admission; group 0 has rwx where needed.
 
-FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 # Kubernetes client: upstream kubectl, not Red Hat's oc. Even the newest oc 4.18 client carried 2 CRITICAL and 60 HIGH
 # vulnerabilities in its bundled Go code (image-scan, 2026-11-25); kubectl 1.32 has no CRITICAL. 1.32 is within one minor
