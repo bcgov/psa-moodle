@@ -1204,14 +1204,22 @@ created with `--internal`, so it has no route to the internet.
    structure is ok" (the §5.2 drift is gone on Postgres); the login page renders with the `bcgovpsa` theme and the "BC
    Government Login" button; the site starts in maintenance, because the freeze's `maintenance_enabled = 'cli mode'` is
    carried over and only `maintenance.php --disable` clears it. Status checks: cron not running (no cron locally), one
-   queued ad hoc task, and `registration_cron_task` at the maximum fail delay, which it already is in prod. Check:
+   queued ad hoc task, and `registration_cron_task` at the maximum fail delay, which it already is in prod. **With files
+   (2026-11-25):** a read-only copy of the referenced files (8,710 of 8,772, 2.4 GiB, every SHA-1 correct) plus `secret/`
+   and `lang/` (empty: prod's language customisations live only in `tool_customlang`). The 62 missing are the 3 known
+   (§5.3) plus 59 referenced in the 18 November database but deleted and purged from prod since, the skew of copying
+   files a week after the dump; a real window takes both at the same freeze. Moodle used prod's copied key with
+   `nokeygeneration` on. Check:
    - `admin/index.php` shows **no pending upgrade**;
    - the environment check passes;
    - the site starts in maintenance;
    - pages work.
 4. **Guard test (R2):** with the guard on, complete a **synthetic** course as a synthetic user. Confirm the ELM POST went to
    the dead address and nothing else, and that no email left. Record the cleanup: delete the synthetic records, or reload the
-   baseline.
+   baseline. `ops/replatform/guard-test.php --run | --cleanup` does this. **Passed on the local prod copy, 2026-11-25:** a
+   learner with no ELM enrolment record makes the observer stop at an alert email with no recipients; a learner with a
+   synthetic ELM record makes it POST to the dead `completion_apiurl`, and the attempt is logged as `Error`. Cleanup left
+   no synthetic course, user or log row.
 5. **Reverse direction with new writes (R12, RB08):**
    1. Create a user, a course, an enrolment, an upload, a quiz attempt, a completion, and **two tags differing only by
       accent in one collection**.
