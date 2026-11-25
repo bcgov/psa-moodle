@@ -446,8 +446,16 @@ run (D1). Legacy cron is at 0, and the site is in CLI maintenance.
 - All 455 plugin versions are identical in prod and test.
 - **Exact code, copied 2026-11-25** (read-only, checksums matched against the pods) to the private folder
   `legacy-code-20261125/`. Prod's core is `MOODLE_405_STABLE` at `32d78752`, test's at `d94b3c54`; dev (4.5.15) has no
-  `.git`. Prod and test differ in 71 files (34 in `mod/hvp`, the rest in add-ons, core `version.php` and Composer
-  files). All three environments run the same php image; the code lives on each `moodle-app-data` volume.
+  `.git`. **In code, prod and test differ in three core files** (`version.php` and two installer language strings, from
+  their two core commits); every add-on is at the same commit in both. Their other differences are git metadata and
+  legacy build files (Composer, `vendor/`, `openshift/`, `config/`). All three environments run the same php image; the
+  code lives on each `moodle-app-data` volume.
+- **The exact code is reproducible from public commits (checked 2026-11-25).** Core at the commit above plus each add-on
+  at its recorded commit (`course_search` `bdda41e6`, `bcgovpsa` `62721920`, `psaelmsync` `ce1e3b32`, `allbackups`
+  `a816aa7b`, `hvp` `a36099fe` with its submodules, `pathcurator` `537c9522`; `githubsync` `f80e7768`, excluded) gives
+  29,628 of prod's 29,632 files byte for byte (test: 29,631 of 29,635), after the agreed exclusions. The only
+  differences are four small legacy files: its own `composer.json` and `composer.lock` (one added package, the excluded
+  `vendor/`), `favicon.ico` and `.github/security-tools.json`.
 - The psa-moodle image is built from the **head** of `MOODLE_405_STABLE` and of each plugin's branch
   (`Containerfile.php`, `git clone --depth=1 --branch`), so its exact code is not pinned. It **lacks `report_allbackups`**
   (6 add-ons against prod's 7).
