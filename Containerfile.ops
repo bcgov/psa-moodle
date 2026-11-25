@@ -8,22 +8,28 @@
 #
 # Built non-root. SCC reassigns UID at admission; group 0 has rwx where needed.
 
-FROM docker.io/library/alpine:3.20
+FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 
-ARG OC_VERSION=4.15.20
+# Kubernetes client: upstream kubectl, not Red Hat's oc. Even the newest oc 4.18 client carried 2 CRITICAL and 60 HIGH
+# vulnerabilities in its bundled Go code (image-scan, 2026-11-25); kubectl 1.32 has no CRITICAL. 1.32 is within one minor
+# of the clusters' Kubernetes 1.31 (OpenShift 4.18). The ops scripts only use get, exec, logs, apply, patch, wait and
+# delete, which kubectl has, so `oc` is a link to it. Bump KUBECTL_VERSION when image-scan flags it; Dependabot can't.
+ARG KUBECTL_VERSION=v1.32.13
+ARG TARGETARCH
 
 RUN apk add --no-cache \
       bash curl jq ca-certificates \
       perl perl-net-ssleay \
       tini \
       postgresql-client \
- && curl -fsSL -o /tmp/oc.tar.gz \
-      https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux-${OC_VERSION}.tar.gz \
- && tar -xzf /tmp/oc.tar.gz -C /usr/local/bin oc \
- && rm /tmp/oc.tar.gz \
+ && arch="${TARGETARCH:-amd64}" \
+ && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" \
+ && echo "$(curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl.sha256")  /usr/local/bin/kubectl" \
+      | sha256sum -c - \
+ && ln -s kubectl /usr/local/bin/oc \
  && curl -fsSL -o /usr/local/bin/swaks \
       https://raw.githubusercontent.com/jetmore/swaks/v20240103.0/swaks \
- && chmod +x /usr/local/bin/swaks /usr/local/bin/oc
+ && chmod 755 /usr/local/bin/swaks /usr/local/bin/kubectl
 
 # Helper scripts the CronJobs invoke.
 COPY scripts/ops/ /usr/local/bin/

@@ -1,0 +1,104 @@
+# image-scan — daily vulnerability scan of the images psa-moodle builds (owner decision 2026-11-25).
+#
+# Builds php, web, cron and ops exactly as `make build` does, then scans each with Trivy for OS and language packages.
+# Fails on any CRITICAL vulnerability that has a fix available (so a rebuild or a base-image bump resolves it), and
+# lists HIGH ones in the summary. Results also go to the repository's Security tab (code scanning).
+# Runs daily, on PRs that change a Containerfile or Dependabot's config, and by hand.
+name: image-scan
+
+on:
+  schedule:
+    - cron: "0 13 * * *"     # 05:00/06:00 Pacific, before Dependabot's 06:00 run
+  pull_request:
+    branches: [main]
+    paths:
+      - "Containerfile*"
+      - "ops/replatform/Containerfile*"
+      - "config/php/**"
+      - "config/nginx/**"
+      - ".github/workflows/image-scan.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  TRIVY_IMAGE: docker.io/aquasec/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build images
+        run: make build MOODLE_CONFIG_VARIANT=openshift TAG=scan
+
+      - name: Scan
+        id: scan
+        run: |
+          mkdir -p scan
+          fail=0
+          for c in php web cron ops; do
+            podman save -o "scan/$c.tar" "localhost/psa-moodle-$c:scan"
+            # Table of CRITICAL and HIGH (fixable) for the summary; SARIF for code scanning.
+            podman run --rm -v "$PWD/scan:/scan" -v trivy-cache:/root/.cache "$TRIVY_IMAGE" image --quiet \
+              --input "/scan/$c.tar" --severity CRITICAL,HIGH --ignore-unfixed --format table \
+              --output "/scan/$c.txt"
+            podman run --rm -v "$PWD/scan:/scan" -v trivy-cache:/root/.cache "$TRIVY_IMAGE" image --quiet \
+              --input "/scan/$c.tar" --severity CRITICAL,HIGH --ignore-unfixed --format sarif \
+              --output "/scan/$c.sarif"
+            podman run --rm -v "$PWD/scan:/scan" -v trivy-cache:/root/.cache "$TRIVY_IMAGE" image --quiet \
+              --input "/scan/$c.tar" --severity CRITICAL --ignore-unfixed --exit-code 1 --format table \
+              --output /dev/null || { echo "::error::$c image has fixable CRITICAL vulnerabilities"; fail=1; }
+            rm -f "scan/$c.tar"
+          done
+          echo "fail=$fail" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## image-scan $(date -u +%F)"
+            echo
+            echo "CRITICAL and HIGH vulnerabilities with a fix available (Trivy, \`$TRIVY_IMAGE\`):"
+            for c in php web cron ops; do
+              echo; echo "### $c"; echo '```'
+              if [ -s "scan/$c.txt" ]; then head -c 60000 "scan/$c.txt"; else echo "none"; fi
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload php results to code scanning
+        if: always() && hashFiles('scan/php.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scan/php.sarif
+          category: image-scan-php
+      - name: Upload web results to code scanning
+        if: always() && hashFiles('scan/web.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scan/web.sarif
+          category: image-scan-web
+      - name: Upload cron results to code scanning
+        if: always() && hashFiles('scan/cron.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scan/cron.sarif
+          category: image-scan-cron
+      - name: Upload ops results to code scanning
+        if: always() && hashFiles('scan/ops.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scan/ops.sarif
+          category: image-scan-ops
+
+      - name: Fail on fixable CRITICAL vulnerabilities
+        if: steps.scan.outputs.fail == '1'
+        run: |
+          echo "Fixable CRITICAL vulnerabilities found: rebuild, or merge the pending Dependabot base-image PR."
+          exit 1

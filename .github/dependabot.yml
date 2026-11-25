@@ -1,0 +1,48 @@
+# Keeps base images and GitHub Actions current (owner decision 2026-11-25: patching near-daily).
+#
+# Docker: every Containerfile pins its base image by tag AND digest. Dependabot proposes both new versions (e.g. PHP
+# 8.3.37 -> 8.3.38, nginx 1.30.8 -> 1.30.9) and new digests (upstream rebuilt the same version with OS security fixes),
+# all in ONE grouped PR a day at most, across the root Containerfiles and ops/replatform/. CI (build, lint, image-scan)
+# runs on the PR; review it and merge. For the 950003 environments, then run build-exact and roll out the new digests.
+#
+# Version lines held on purpose (a bump there is a planned change, not a patch):
+#   php    8.3.x  Moodle 4.5 supports PHP 8.1-8.3; 8.4 is not supported.
+#   nginx  1.30.x the stable branch; 1.31 is mainline.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directories:
+      - "/"
+      - "/ops/replatform"
+    schedule:
+      interval: daily
+      time: "06:00"
+      timezone: America/Vancouver
+    open-pull-requests-limit: 5
+    labels: [dependencies, base-images]
+    commit-message:
+      prefix: "build(deps)"
+    groups:
+      base-images:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "library/php"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "php"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "nginx/nginx-unprivileged"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Vancouver
+    labels: [dependencies, github-actions]
+    commit-message:
+      prefix: "ci(deps)"
+    groups:
+      actions:
+        patterns: ["*"]

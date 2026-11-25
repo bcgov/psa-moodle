@@ -54,6 +54,18 @@ jobs:
           shopt -s globstar nullglob
           shellcheck --severity=warning scripts/**/*.sh ops/**/*.sh
 
+  versions:
+    # Every PHP base image must be the same release (php-fpm, cron, conversion), so a bump can't half-land.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: One PHP version across the Containerfiles
+        run: |
+          versions=$(grep -hoE 'library/php:[0-9]+\.[0-9]+\.[0-9]+' Containerfile* ops/replatform/Containerfile* | sort -u)
+          echo "$versions"
+          [ "$(echo "$versions" | wc -l)" -eq 1 ] || { echo "::error::PHP base images disagree"; exit 1; }
+
   yaml:
     runs-on: ubuntu-latest
     timeout-minutes: 5

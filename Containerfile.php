@@ -8,7 +8,7 @@
 # =============================================================================
 # Stage 1 — source builder: clones Moodle, layers plugins + theme + config.
 # =============================================================================
-FROM debian:bookworm-slim AS src
+FROM docker.io/library/debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e AS src
 
 ARG MOODLE_BRANCH=MOODLE_405_STABLE
 ARG HVP_BRANCH=master
@@ -60,7 +60,9 @@ RUN find ${MOODLE_SRC} -name '.git' -type d -prune -exec rm -rf {} + \
 # 8.3.37 is a security release (https://www.php.net/releases/8_3_37.php); 8.3.36 has a critical CVE fixed there.
 # (8.3.36, 2026-10-21, fixed CVE-2026-109618 and CVE-2026-109619.)
 # Keep in sync with Containerfile.cron; Moodle 4.5 supports PHP through 8.3.
-FROM docker.io/library/php:8.3.37-fpm-bookworm AS runtime
+# Base images are pinned by digest; Dependabot (.github/dependabot.yml) proposes new versions and new digests
+# (upstream rebuilds with OS security fixes) as one grouped PR.
+FROM docker.io/library/php:8.3.37-fpm-bookworm@sha256:ad13a726ec26a35fef5a1a0e0002ebf37dae4f2a9c51f9744ebc046581e1f7c3 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 

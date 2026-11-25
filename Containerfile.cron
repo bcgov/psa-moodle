@@ -11,7 +11,7 @@ FROM ${PHP_IMAGE} AS src
 # =============================================================================
 # 8.3.37 is a security release (https://www.php.net/releases/8_3_37.php); 8.3.36 has a critical CVE fixed there.
 # Keep in sync with Containerfile.php; Moodle 4.5 supports PHP through 8.3.
-FROM docker.io/library/php:8.3.37-cli-bookworm
+FROM docker.io/library/php:8.3.37-cli-bookworm@sha256:ab657f49471efd8ec265ce14ee20a855e19aee3f3ed3c55910528dab9fa3ffd8
 
 ENV DEBIAN_FRONTEND=noninteractive
 

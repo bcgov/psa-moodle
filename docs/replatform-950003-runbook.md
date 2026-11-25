@@ -1025,6 +1025,15 @@ which happens as its own approved step.
   environment) does this, builds php, web and cron for `linux/amd64`, checks `version.php` and the exclusions inside the
   image, pushes only when registry credentials exist, and lists the digests for `values-950003-<env>.yaml`. It deploys
   nothing and never runs `upgrade.php`.
+  *First CI run, 2026-11-25 (`build-exact`, prod, run 45723409399): the tree matched, php/web/cron built for amd64,
+  `version.php` read `2024100711.04` in the image, GitHub sync and `info/` absent; not pushed (no registry credentials).*
+- **Keeping images patched (owner decision 2026-11-25: near-daily patching):** every base image is pinned by tag **and**
+  digest. `.github/dependabot.yml` proposes new versions (PHP 8.3.x, nginx 1.30.x; minor and major lines held) and new
+  digests (upstream OS-security rebuilds) in **one grouped PR a day at most**, plus weekly GitHub Actions updates. CI's
+  `lint` refuses PHP base images that disagree. `.github/workflows/image-scan.yml` builds and scans php, web, cron and
+  ops with Trivy daily and on Containerfile PRs, fails on fixable CRITICAL, lists HIGH, and reports to the Security tab.
+  The ops image now uses upstream `kubectl` 1.32 (`oc` is a link to it): the `oc` 4.15 client had 6 CRITICAL; even
+  4.18.56 had 2.
 - **How (built 2026-11-25 for prod):** `Containerfile.php` now has a code-free `runtime` stage (`--target runtime`);
   `ops/replatform/Containerfile.php-exact` adds the context made by `prepare-exact-context.sh` from the read-only code
   copy; web and cron are built from it with `PHP_IMAGE`, as usual. The context drops `local/githubsync` (G1) and the
