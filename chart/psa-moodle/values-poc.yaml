@@ -65,6 +65,7 @@ networkPolicy:
     enabled: true
 
 route:
+  allowAll: true             # not a copy of real data: public, as before (S15 applies to 950003 only)
   host: "psa-moodle-dev.apps.silver.devops.gov.bc.ca"
 
 # --- Single replicas — a PoC proves the path works, not that it scales. --------

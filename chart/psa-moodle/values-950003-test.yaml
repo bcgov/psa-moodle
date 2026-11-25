@@ -1,0 +1,51 @@
+# 950003-test: psa-moodle beside legacy moodle-nginx during the replatform (runbook C6). Apply on top of values.yaml.
+# Sizes: runbook §5.4. Never commit reviewer IP addresses or alert recipients: pass them at deploy time, e.g.
+#   --set-json 'route.allowedSources=["<owner's address>/32"]' --set backup.alerts.to=<owner's email>
+install:
+  enabled: false             # a migrated site: no installer, nokeygeneration (C2, V602)
+
+migration:
+  state: normal              # "fenced" for every upgrade during a writer fence (S13, V501)
+
+moodle:
+  wwwroot: "https://psa-moodle-950003-test.apps.silver.devops.gov.bc.ca"   # temporary hostname until §13.2
+  outbound: "off"            # "on" only by the S11 commit-point upgrade (C5)
+  reviewerAdmins: "69"               # the owner (G2); the same id in prod and test
+
+route:
+  host: "psa-moodle-950003-test.apps.silver.devops.gov.bc.ca"
+  allowedSources: []         # admits nobody until addresses are passed at deploy time (S15, V505)
+
+cron:
+  enabled: false             # 0 until the commit point (C3, S4, S11)
+
+web:
+  replicas: 2
+  image: { name: web, digest: "" }   # built from the exact php image (C10, C13)
+php:
+  image: { name: php, digest: "" }   # the exact-code test build (.03), by digest (C10, C13)
+  replicas: 2
+
+hpa:                         # fixed replicas in every migration state (RB04)
+  web: { enabled: false }
+  php: { enabled: false }
+
+moodledata:
+  size: 3Gi
+
+valkey:
+  persistence:
+    size: 1Gi
+
+postgres:
+  instances:
+    replicas: 2
+    storage: 2Gi
+  pgbackrest:
+    repoStorage: 3Gi           # C8 moves it to netapp-file-backup with time-based retention (not yet in the chart)
+
+backup:
+  restoreRehearsal:
+    enabled: false           # never in test or prod during the parallel run (G3, C7)
+  moodledataSnapshot:
+    enabled: false           # VolumeSnapshots don't suit file storage (C16); the C8 nightly backup replaces it

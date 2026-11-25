@@ -52,7 +52,9 @@ server {
         fastcgi_split_path_info  ^(.+?\.php)(/.*)$;
         if (!-f $document_root$fastcgi_script_name) { return 404; }
 
-        fastcgi_pass   php:9000;
+        # ${PHP_UPSTREAM} is filled in at container start by nginx's own envsubst step (C1): the chart sets the
+        # release's php Service; the image's default php:9000 suits Podman compose.
+        fastcgi_pass   ${PHP_UPSTREAM};
         fastcgi_index  index.php;
         fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
         fastcgi_param  PATH_INFO $fastcgi_path_info;

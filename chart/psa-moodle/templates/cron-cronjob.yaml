@@ -13,6 +13,7 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "cron") | nindent 4 }}
 spec:
+  suspend: {{ or (not .Values.cron.enabled) (include "psa-moodle.fenced" . | eq "true") }}
   schedule: {{ .Values.cron.schedule | quote }}
   concurrencyPolicy: {{ .Values.cron.concurrencyPolicy }}
   startingDeadlineSeconds: {{ .Values.cron.startingDeadlineSeconds }}

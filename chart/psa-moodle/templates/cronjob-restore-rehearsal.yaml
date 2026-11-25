@@ -15,6 +15,7 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "restore-rehearsal") | nindent 4 }}
 spec:
+  suspend: {{ include "psa-moodle.fenced" . | eq "true" }}  # migration.state=fenced suspends it (S13)
   schedule: {{ .Values.backup.restoreRehearsal.schedule | quote }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

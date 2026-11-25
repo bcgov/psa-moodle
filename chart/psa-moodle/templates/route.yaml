@@ -12,6 +12,11 @@ metadata:
     {{- include "psa-moodle.componentLabels" (list . "web") | nindent 4 }}
   annotations:
     haproxy.router.openshift.io/timeout: {{ .Values.route.timeout | quote }}
+    {{- if not .Values.route.allowAll }}
+    # S15/V505: only the listed source addresses reach this Route. With none listed it admits nobody: an EMPTY
+    # ip_whitelist would admit everyone, so the default is 192.0.2.1/32 (TEST-NET-1, which no client uses).
+    haproxy.router.openshift.io/ip_whitelist: {{ if .Values.route.allowedSources }}{{ join " " .Values.route.allowedSources | quote }}{{ else }}"192.0.2.1/32"{{ end }}
+    {{- end }}
 spec:
   {{- with .Values.route.host }}
   host: {{ . | quote }}

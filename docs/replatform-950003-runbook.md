@@ -854,24 +854,29 @@ which happens as its own approved step.
 
 ### 8.1 Chart and pipeline changes
 - **C1:** render nginx's FastCGI upstream from the release's own php Service (for example a ConfigMap carrying
-  `fastcgi_pass <fullname>-php:9000`), and delete the literal `php` Service.
+  `fastcgi_pass <fullname>-php:9000`), and delete the literal `php` Service. *Done 2026-11-25:* nginx's config is a
+  template filled at start from `PHP_UPSTREAM` (only that variable), which the chart sets to `<fullname>-php:9000`; the
+  image default `php:9000` keeps Podman compose working. Tested on the local stack.
 - **C2:** add `install.enabled` (default `true`). Migrated installs set it to `false`. *Done 2026-11-25:* it gates the
   installer Job and sets `MOODLE_INSTALL_ENABLED` (which turns on `nokeygeneration`).
-- **C3:** add `cron.enabled`, so cron runs 0 or 1 replicas. Every 950003 values file keeps `cron.mode: deployment` with
+- **C3:** add `cron.enabled`, so cron runs 0 or 1 replicas (*done 2026-11-25*; it also suspends the cron CronJob mode). Every 950003 values file keeps `cron.mode: deployment` with
   `intervalSeconds: 60`. Moodle expects a cron run every minute, and on Silver Kyverno throttles a CronJob that mounts a PVC
   to hourly (recorded in `cron-deployment.yaml` from the PoC), so cron is a one-pod loop, never a CronJob. The loop doesn't
   start `cron.php` while the backup's `climaintenance.html` is present, and removes a backup-marked one older than
   15 minutes (C8). It never touches an operator's maintenance file.
-- **C4:** scope every NetworkPolicy to release selector labels; no `podSelector: {}` anywhere.
+- **C4:** scope every NetworkPolicy to release selector labels; no `podSelector: {}` anywhere. *Done 2026-11-25:* the
+  only offender was the monitoring policy, which opened the metrics ports on every pod in the namespace, legacy's
+  included; it is now one policy for this release's php pods and one for its Crunchy pods.
 - **C5:** add `moodle.outbound: off | on` (default `off`), which sets `MOODLE_OUTBOUND` for php and cron (§8.2). *Done
   2026-11-25,* with `moodle.reviewerAdmins` (`MOODLE_REVIEWER_ADMINS`, G2). The existing PoC values files set `on`, so
   those sites keep today's behaviour.
-- **C6:** add `values-950003-{dev,test,prod}.yaml` with:
+- **C6:** add `values-950003-{dev,test,prod}.yaml` (*first version 2026-11-25:* the files exist and render; image digests,
+  reviewer addresses and alert recipients are supplied at deploy time, the last two never committed) with:
   - temporary hostnames;
   - the image home and the per-environment image digest (C10);
   - sizes that fit the Phase 0 numbers, with `maxSurge` set so a rollout fits;
   - Postgres instances: **3 in prod, 2 in test during its parallel run** (G3);
-  - the temporary Route's `route.allowedSources` (reviewer addresses). It is rendered as
+  - the temporary Route's `route.allowedSources` (reviewer addresses; *in the chart 2026-11-25*). It is rendered as
     `haproxy.router.openshift.io/ip_whitelist`, and **defaults to admitting nobody**, so the Route is restricted from
     creation (S15, V505);
   - **HPAs set to min = max** (or disabled) in every migration state (RB04);
@@ -973,7 +978,9 @@ which happens as its own approved step.
   The OpenShift and Artifactory secrets are added only after this is merged.
 - **C15 (RB14):** separate the application's internet egress (`networkPolicy.externalEgress`) from a narrowly scoped rule
   for ops jobs' Kubernetes API access and alert delivery. Prove both in the isolated dev profile.
-- **Fenced profile (S13, V501):** `migration.state: normal | fenced`. `fenced` renders web, php and cron at 0 replicas,
+- **Fenced profile (S13, V501):** `migration.state: normal | fenced` (*done 2026-11-25*, verified by rendering both states;
+  any other value fails the render; `ops/replatform/verify-fenced.sh <namespace> <release>` checks a fence with `oc get`
+  only). `fenced` renders web, php and cron at 0 replicas,
   HPAs off, application CronJobs with `suspend: true` (the moodledata backup included), and outbound off. Every upgrade
   during a fence uses it. `verify-fenced.sh` also checks that no backup Job is active and no backup-marked
   `climaintenance.html` remains.

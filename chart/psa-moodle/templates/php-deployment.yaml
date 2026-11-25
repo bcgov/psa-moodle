@@ -5,7 +5,9 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "php") | nindent 4 }}
 spec:
-  {{- if not .Values.hpa.php.enabled }}
+  {{- if include "psa-moodle.fenced" . }}
+  replicas: 0                # migration.state=fenced (S13)
+  {{- else if not .Values.hpa.php.enabled }}
   replicas: {{ .Values.php.replicas }}
   {{- end }}
   selector:

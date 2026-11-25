@@ -6,6 +6,7 @@ moodle:
   outbound: "on"            # not a copy of real data: keep email and ELM as before (C5)
 
 route:
+  allowAll: true             # not a copy of real data: public, as before (S15 applies to 950003 only)
   host: "psa-moodle-dev.apps.silver.devops.gov.bc.ca"
 
 # Single replicas — dev is for fast iteration, not load.

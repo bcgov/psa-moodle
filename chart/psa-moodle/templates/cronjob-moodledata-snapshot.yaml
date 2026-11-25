@@ -16,6 +16,7 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "moodledata-snapshot") | nindent 4 }}
 spec:
+  suspend: {{ include "psa-moodle.fenced" . | eq "true" }}  # migration.state=fenced suspends it (S13)
   schedule: {{ .Values.backup.moodledataSnapshot.schedule | quote }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -62,6 +63,7 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "moodledata-snapshot-prune") | nindent 4 }}
 spec:
+  suspend: {{ include "psa-moodle.fenced" . | eq "true" }}  # migration.state=fenced suspends it (S13)
   schedule: {{ .Values.backup.moodledataSnapshot.pruneSchedule | quote }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

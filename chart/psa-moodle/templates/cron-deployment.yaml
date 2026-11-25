@@ -23,7 +23,8 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "cron") | nindent 4 }}
 spec:
-  replicas: 1
+  # C3: cron.enabled=false keeps cron at 0 until the commit point (S4, S11); never more than one loop.
+  replicas: {{ if and .Values.cron.enabled (not (include "psa-moodle.fenced" .)) }}1{{ else }}0{{ end }}
   strategy:
     type: Recreate
   selector:

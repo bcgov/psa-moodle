@@ -5,15 +5,41 @@ Creates: NetworkPolicy (allow scraping), PodMonitor (Crunchy), ServiceMonitor
 (PHP-FPM exporter), PrometheusRule (alerts), AlertmanagerConfig (email routing).
 */}}
 
-# --- NetworkPolicy: allow Prometheus scraping from openshift-user-workload-monitoring ---
+# --- NetworkPolicies: allow Prometheus scraping from openshift-user-workload-monitoring ---
+# C4: each policy selects only this release's pods. Never `podSelector: {}`: in a namespace shared with legacy
+# moodle-nginx that would open these ports on legacy's pods too, because NetworkPolicies are additive.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "psa-moodle.fullname" . }}-allow-monitoring
+  name: {{ include "psa-moodle.fullname" . }}-allow-monitoring-php
   labels:
     {{- include "psa-moodle.labels" . | nindent 4 }}
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      {{- include "psa-moodle.componentSelectorLabels" (list . "php") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-user-workload-monitoring
+      ports:
+        - protocol: TCP
+          port: 9253   # php-fpm-exporter
+---
+# Crunchy's pods don't carry the Helm release labels; select them by the operator's own cluster label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-monitoring-postgres
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      postgres-operator.crunchydata.com/cluster: {{ include "psa-moodle.postgres.clusterName" . }}
   policyTypes:
     - Ingress
   ingress:
@@ -24,8 +50,6 @@ spec:
       ports:
         - protocol: TCP
           port: 9187   # crunchy-postgres-exporter
-        - protocol: TCP
-          port: 9253   # php-fpm-exporter
 
 ---
 # --- PodMonitor: Crunchy Postgres exporter (sidecar on each PG pod) ---

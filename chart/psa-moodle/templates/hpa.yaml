@@ -11,7 +11,7 @@ When enabled, the matching Deployment must NOT set spec.replicas, or Helm
 will revert HPA's scale decisions on every upgrade. See web-deployment.yaml
 and php-deployment.yaml for the conditional.
 */ -}}
-{{- if .Values.hpa.web.enabled }}
+{{- if and .Values.hpa.web.enabled (not (include "psa-moodle.fenced" .)) }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -39,7 +39,7 @@ spec:
     scaleUp:
       stabilizationWindowSeconds: 30
 {{- end }}
-{{- if .Values.hpa.php.enabled }}
+{{- if and .Values.hpa.php.enabled (not (include "psa-moodle.fenced" .)) }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

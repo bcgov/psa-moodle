@@ -75,19 +75,27 @@ app.kubernetes.io/component: {{ $component }}
 Image references — one helper per component so values.yaml stays clean.
 */}}
 {{- define "psa-moodle.image.web" -}}
-{{- printf "%s/%s/%s:%s" .Values.image.registry .Values.image.repository .Values.web.image.name .Values.image.tag }}
+{{- /* C13: a digest (sha256:...) pins the exact image; otherwise the shared tag. */ -}}
+{{- $base := printf "%s/%s/%s" .Values.image.registry .Values.image.repository .Values.web.image.name -}}
+{{- with .Values.web.image.digest }}{{ printf "%s@%s" $base . }}{{ else }}{{ printf "%s:%s" $base $.Values.image.tag }}{{ end }}
 {{- end }}
 
 {{- define "psa-moodle.image.php" -}}
-{{- printf "%s/%s/%s:%s" .Values.image.registry .Values.image.repository .Values.php.image.name .Values.image.tag }}
+{{- /* C13: a digest (sha256:...) pins the exact image; otherwise the shared tag. */ -}}
+{{- $base := printf "%s/%s/%s" .Values.image.registry .Values.image.repository .Values.php.image.name -}}
+{{- with .Values.php.image.digest }}{{ printf "%s@%s" $base . }}{{ else }}{{ printf "%s:%s" $base $.Values.image.tag }}{{ end }}
 {{- end }}
 
 {{- define "psa-moodle.image.cron" -}}
-{{- printf "%s/%s/%s:%s" .Values.image.registry .Values.image.repository .Values.cron.image.name .Values.image.tag }}
+{{- /* C13: a digest (sha256:...) pins the exact image; otherwise the shared tag. */ -}}
+{{- $base := printf "%s/%s/%s" .Values.image.registry .Values.image.repository .Values.cron.image.name -}}
+{{- with .Values.cron.image.digest }}{{ printf "%s@%s" $base . }}{{ else }}{{ printf "%s:%s" $base $.Values.image.tag }}{{ end }}
 {{- end }}
 
 {{- define "psa-moodle.image.ops" -}}
-{{- printf "%s/%s/%s:%s" .Values.image.registry .Values.image.repository .Values.image.ops.name .Values.image.tag }}
+{{- /* C13: a digest (sha256:...) pins the exact image; otherwise the shared tag. */ -}}
+{{- $base := printf "%s/%s/%s" .Values.image.registry .Values.image.repository .Values.image.ops.name -}}
+{{- with .Values.image.ops.digest }}{{ printf "%s@%s" $base . }}{{ else }}{{ printf "%s:%s" $base $.Values.image.tag }}{{ end }}
 {{- end }}
 
 {{/*
@@ -198,7 +206,7 @@ duplicate them in our own Secret.
 - name: MOODLE_BEHIND_PROXY
   value: "1"
 - name: MOODLE_OUTBOUND
-  value: {{ .Values.moodle.outbound | default "off" | quote }}
+  value: {{ if include "psa-moodle.fenced" . }}"off"{{ else }}{{ .Values.moodle.outbound | default "off" | quote }}{{ end }}
 - name: MOODLE_REVIEWER_ADMINS
   value: {{ .Values.moodle.reviewerAdmins | default "" | quote }}
 - name: MOODLE_INSTALL_ENABLED
@@ -207,4 +215,17 @@ duplicate them in our own Secret.
 - name: MOODLE_DEBUG
   value: "1"
 {{- end }}
+{{- end }}
+
+{{/*
+Migration state (replatform runbook S13, V501): "normal" or "fenced". The fenced profile renders web, php and cron at
+0 replicas, HPAs off, every application CronJob suspended and outbound off, so no later upgrade can bring a writer back.
+Returns "true" when fenced. Any other value fails the render.
+*/}}
+{{- define "psa-moodle.fenced" -}}
+{{- $state := .Values.migration.state | default "normal" -}}
+{{- if not (has $state (list "normal" "fenced")) -}}
+{{- fail (printf "migration.state must be normal or fenced, not %q" $state) -}}
+{{- end -}}
+{{- if eq $state "fenced" }}true{{ end -}}
 {{- end }}

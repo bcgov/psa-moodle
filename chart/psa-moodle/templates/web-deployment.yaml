@@ -5,7 +5,9 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "web") | nindent 4 }}
 spec:
-  {{- if not .Values.hpa.web.enabled }}
+  {{- if include "psa-moodle.fenced" . }}
+  replicas: 0                # migration.state=fenced (S13)
+  {{- else if not .Values.hpa.web.enabled }}
   replicas: {{ .Values.web.replicas }}
   {{- end }}
   selector:
@@ -44,6 +46,10 @@ spec:
             - name: http
               containerPort: {{ .Values.web.service.port }}
               protocol: TCP
+          env:
+            # C1: nginx's FastCGI upstream is this release's own php Service, never a shared name.
+            - name: PHP_UPSTREAM
+              value: {{ printf "%s-php:%v" (include "psa-moodle.fullname" .) .Values.php.service.port | quote }}
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
           livenessProbe:

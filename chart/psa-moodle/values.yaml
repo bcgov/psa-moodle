@@ -18,6 +18,12 @@ image:
   ops:
     name: ops
 
+# --- Migration state (replatform runbook S13, V501) ------------------------------------
+# normal | fenced. Every helm upgrade during a writer fence uses fenced: web, php and cron at 0, HPAs off, application
+# CronJobs suspended, outbound off. Any other value fails the render.
+migration:
+  state: normal
+
 # --- Install (C2) -------------------------------------------------------------------
 # false for a migrated site: no installer Job, and Moodle never generates a new encryption key (nokeygeneration, V602).
 install:
@@ -71,7 +77,8 @@ php:
 # mode: "cronjob" keeps the original isolated-pod-per-tick CronJob (hourly on
 # Silver due to #1). Retained as a fallback.
 cron:
-  mode: deployment            # deployment | cronjob
+  enabled: true               # C3: false = 0 replicas (migration states before the commit point)
+  mode: deployment            # deployment | cronjob; keep deployment on Silver (one-minute cadence, see cron-deployment.yaml)
   image:
     name: cron
   intervalSeconds: 60         # deployment mode: seconds between cron.php ticks
@@ -149,6 +156,10 @@ postgres:
 # --- OpenShift Route -----------------------------------------------------------
 route:
   host: ""                   # required — set per environment
+  # S15/V505: source addresses (CIDRs) allowed to reach this Route. Empty admits NOBODY. Pass real addresses at deploy
+  # time (--set-json 'route.allowedSources=["203.0.113.4/32"]'); never commit them.
+  allowedSources: []
+  allowAll: false            # true only for a site that isn't a copy of real data (the PoC values files)
   tls:
     enabled: true
     termination: edge        # router terminates; pod talks plain HTTP
