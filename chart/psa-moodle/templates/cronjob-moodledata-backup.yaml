@@ -1,0 +1,152 @@
+{{- if .Values.backup.moodledata.enabled }}
+{{- /*
+Nightly moodledata backup with a short writer pause (replatform runbook C8, J1, J2, J4). The script is
+scripts/ops/moodledata-backup.sh in the ops image. It writes only climaintenance.html in the live moodledata.
+
+- No runAsUser here, on purpose: OpenShift gives every pod in the namespace the same default UID, so this job reads
+  secret/key (mode 0400, owned by the php pods' UID) and can create and remove the maintenance page.
+- Pod-level activeDeadlineSeconds: the pod counts against time-bound quota (§5.4), and a dead run's staging folder is
+  only removed by a later run once it is older than this deadline.
+- Its own ServiceAccount may exec into the pgBackRest repository host only (pgbackrest info, the V804 gate).
+*/ -}}
+{{- $fullname := include "psa-moodle.fullname" . }}
+{{- $pg := include "psa-moodle.postgres.clusterName" . }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-moodledata-backup
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep   # backups outlive an uninstall
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.backup.moodledata.storageClassName | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.moodledata.size }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}-moodledata-backup
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-moodledata-backup
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+    resourceNames: [{{ printf "%s-repo-host-0" $pg | quote }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-moodledata-backup
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fullname }}-moodledata-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-moodledata-backup
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullname }}-moodledata-backup
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 4 }}
+spec:
+  suspend: {{ include "psa-moodle.fenced" . | eq "true" }}  # migration.state=fenced suspends it (S13)
+  schedule: {{ .Values.backup.moodledata.schedule | quote }}
+  timeZone: {{ .Values.backup.moodledata.timeZone | quote }}
+  concurrencyPolicy: Forbid        # a second control; the advisory lock is the real one (V803)
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          activeDeadlineSeconds: {{ .Values.backup.moodledata.activeDeadlineSeconds }}
+          serviceAccountName: {{ $fullname }}-moodledata-backup
+          {{- with .Values.image.pullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: backup
+              image: {{ include "psa-moodle.image.ops" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/usr/local/bin/moodledata-backup.sh"]
+              env:
+                {{- include "psa-moodle.opsEnv" . | nindent 16 }}
+                {{- range $k, $key := dict "PGHOST" "host" "PGPORT" "port" "PGDATABASE" "dbname" "PGUSER" "user" "PGPASSWORD" "password" }}
+                - name: {{ $k }}
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ printf "%s-pguser-%s" $pg $.Values.backup.moodledata.dbUser }}
+                      key: {{ $key }}
+                {{- end }}
+                - name: APP_DB_USER
+                  value: {{ .Values.postgres.user.name | quote }}
+                - name: MOODLEDATA
+                  value: /moodledata
+                - name: DEST
+                  value: /backup
+                - name: RETAIN
+                  value: {{ .Values.backup.moodledata.retain | quote }}
+                - name: STALE_STAGING_MINUTES
+                  value: {{ add (div .Values.backup.moodledata.activeDeadlineSeconds 60) 30 | quote }}
+                {{- if .Values.backup.moodledata.knownGapsConfigMap }}
+                - name: KNOWN_GAPS_FILE
+                  value: /known-gaps/known-gaps.txt
+                {{- end }}
+              volumeMounts:
+                - name: moodledata
+                  mountPath: /moodledata
+                - name: backup
+                  mountPath: /backup
+                {{- if .Values.backup.moodledata.knownGapsConfigMap }}
+                - name: known-gaps
+                  mountPath: /known-gaps
+                  readOnly: true
+                {{- end }}
+              resources:
+                {{- toYaml .Values.backup.moodledata.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: moodledata
+              persistentVolumeClaim:
+                claimName: {{ $fullname }}-moodledata
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ $fullname }}-moodledata-backup
+            {{- with .Values.backup.moodledata.knownGapsConfigMap }}
+            - name: known-gaps
+              configMap:
+                name: {{ . }}
+            {{- end }}
+{{- end }}

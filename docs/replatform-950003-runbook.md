@@ -893,6 +893,14 @@ which happens as its own approved step.
       keeps the repository small; Pass A measures its peak use against the PVC (prod 8 GiB, test 3 GiB).
   - a moodledata backup suited to **file** storage (G4, V508, V602–V604): each night, a set of the content the database
     references, on a `netapp-file-backup` PVC, 7 retained, taken during a short **backup pause** (J1).
+    - *Built 2026-11-25:* `scripts/ops/moodledata-backup.sh` (ops image) and `templates/cronjob-moodledata-backup.yaml`
+      (`backup.moodledata.*`): the PVC (kept on uninstall), its own ServiceAccount allowed to exec into
+      `<cluster>-repo-host-0` only, the Crunchy user `moodle_backup` (EXECUTE on `pg_create_restore_point` at bootstrap;
+      `SELECT` on `mdl_files` granted in the cutover's load step, and the job alerts clearly without it), 02:30
+      `America/Vancouver`, a pod-level deadline of 3600 s, suspended when fenced. The cron loop skips its tick during a
+      backup pause and removes a backup page older than 15 minutes, never an operator's. pgBackRest's retention type and
+      differential schedule are values; the 950003 files use time-based 8 days on `netapp-file-backup`, a weekly full,
+      daily differentials and hourly incrementals.
     - **Why a pause (V801, V802).** Moodle moves content between `filedir` and `trashdir`, and copying a file record adds
       a reference to a hash without writing its content (§5.3). So no copy of the live directories can be proven to match a
       database target. During the pause no Moodle code runs: a web request checks for `climaintenance.html` before it opens
@@ -1539,7 +1547,7 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
 | T | Step | Verify | Undo |
 |---|---|---|---|
 | T+? | Scale the new stack to the target shape within quota (§11.2) | Pods ready; quota not exceeded | §13.4 |
-| T+? | `pg_restore` into the new primary; `compare-content.sh` against the frozen source; `check-filedir` | Only expected differences | Drop and recreate the new database; then §13.4 |
+| T+? | `pg_restore` into the new primary, then `GRANT SELECT ON mdl_files TO moodle_backup` (the nightly backup's role, C8); `compare-content.sh` against the frozen source; `check-filedir` | Only expected differences | Drop and recreate the new database; then §13.4 |
 | T+? | Site in **web** maintenance; purge caches; rebuild the search index; `check-outbound-guard.php` | No pending upgrade; guard values correct | n/a |
 | T+? | Re-verify the temporary Route's restriction (in place since creation, S15); checks by named reviewers through it, with wwwroot on the temporary host | Every response carries `X-PSA-Stack: psa-moodle`; other addresses are refused; a non-reviewer admin is refused | n/a |
 | **CP2** | **Go/no-go: does the new site work for admins?** | | §13.4 |

@@ -26,8 +26,9 @@ umask 007   # group (gid 0 under OpenShift's restricted SCC) can manage what the
 : "${RETAIN:=7}" "${FLOOR:=3}" "${ALERT_PCT:=70}" "${STALE_STAGING_MINUTES:=180}"
 : "${ALERT_DAYS:=3}" "${ESCALATE_DAYS:=5}"
 : "${LOCK_KEY:=727368}"                   # pg advisory lock key shared by every run
-# pgBackRest repository information, as JSON. Default: the Crunchy repo host, like backup-integrity.sh.
-: "${PGBACKREST_INFO_CMD:=oc -n ${TARGET_NAMESPACE:-} exec \$(oc -n ${TARGET_NAMESPACE:-} get pod -l postgres-operator.crunchydata.com/cluster=${POSTGRES_CLUSTER:-},postgres-operator.crunchydata.com/pgbackrest= -o name | head -1) -c pgbackrest -- pgbackrest --output=json info}"
+# pgBackRest repository information, as JSON, from the Crunchy repository host by its fixed name: the
+# pgbackrest label also matches the backup Jobs' pods, and this job may exec into the repo host only (C8 RBAC).
+: "${PGBACKREST_INFO_CMD:=oc -n ${TARGET_NAMESPACE:-} exec ${POSTGRES_CLUSTER:-}-repo-host-0 -c pgbackrest -- pgbackrest --output=json info}"
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 SET_ID="rp-set-$RUN_ID"
@@ -69,6 +70,9 @@ mkdir -p "$SETS" "$DEST/incoming"
 prev=$(ls -1 "$SETS" 2>/dev/null | sort | tail -1 || true)
 prev_dir=${prev:+$SETS/$prev}
 log "previous set: ${prev:-none}"
+
+pq "SELECT 1 FROM mdl_files LIMIT 1" >/dev/null 2>&1 \
+  || die "cannot read mdl_files as $(pq 'SELECT current_user' 2>/dev/null || echo 'the backup role'): GRANT SELECT ON mdl_files TO it (the cutover's load step does this)"
 
 # ---- 1. someone else's maintenance: skip ------------------------------------------------------------------------------
 if [ -f "$FENCE" ]; then log "climaintenance.html already present (operator or another run): skipping tonight"; exit 0; fi

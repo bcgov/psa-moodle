@@ -150,6 +150,8 @@ postgres:
     repoStorageClassName: netapp-block-standard
     # Retention: N full backups before old ones are pruned.
     retentionFull: 7
+    retentionFullType: count       # "time": retentionFull is days of point-in-time recovery (C8, J4)
+    differentialSchedule: ""       # e.g. "0 1 * * 1-6" with a weekly full (C8)
     # Schedules (cron): full once a day, incrementals hourly.
     fullSchedule: "0 2 * * *"
     incrementalSchedule: "0 * * * *"
@@ -283,6 +285,21 @@ backup:
     timeoutSeconds: 1800
     resources:
       requests: { cpu: 100m, memory: 256Mi }
+      limits:   { memory: 512Mi }
+
+  # Nightly moodledata backup with a short writer pause (replatform runbook C8, J1). Enabled from the commit point.
+  moodledata:
+    enabled: false
+    schedule: "30 2 * * *"
+    timeZone: America/Vancouver
+    dbUser: moodle_backup          # its own role: SELECT on mdl_files, EXECUTE pg_create_restore_point
+    storageClassName: netapp-file-backup
+    size: 10Gi
+    retain: 7
+    activeDeadlineSeconds: 3600
+    knownGapsConfigMap: ""         # a ConfigMap with known-gaps.txt: hashes already missing at cutover (§5.3)
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
       limits:   { memory: 512Mi }
 
   moodledataSnapshot:

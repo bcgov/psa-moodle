@@ -52,7 +52,18 @@ spec:
               set -u
               HEARTBEAT=/mnt/ramdisk/cron-heartbeat
               echo "[cron-loop] starting; interval=${CRON_INTERVAL}s"
+              FENCE=/var/www/moodledata/climaintenance.html
               while true; do
+                # C8/J1: during the nightly backup pause, start no cron.php. A backup page older than 15 minutes means
+                # the backup died mid-pause: remove it so the site reopens. An operator's page is never touched.
+                if [ -f "$FENCE" ] && grep -q 'rp-backup-fence' "$FENCE"; then
+                  if [ -n "$(find "$FENCE" -mmin +15)" ]; then
+                    rm -f "$FENCE"; echo "[cron-loop] ALERT removed a stale backup maintenance page (older than 15 min)"
+                  else
+                    echo "[cron-loop] backup pause in progress: skipping this tick"
+                    date -u +%s > "${HEARTBEAT}"; sleep "${CRON_INTERVAL}"; continue
+                  fi
+                fi
                 echo "[cron-loop] tick start $(date -u +%FT%TZ)"
                 php /var/www/html/admin/cli/cron.php 2>&1
                 rc=$?

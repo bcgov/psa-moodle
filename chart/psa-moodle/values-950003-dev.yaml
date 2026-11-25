@@ -43,9 +43,18 @@ postgres:
     storage: 5Gi
   pgbackrest:
     repoStorage: 8Gi           # C8 moves it to netapp-file-backup with time-based retention (not yet in the chart)
+    repoStorageClassName: netapp-file-backup
+    retentionFull: 8               # days of point-in-time recovery (C8, J4)
+    retentionFullType: time
+    fullSchedule: "0 1 * * 0"      # weekly full, daily differential, hourly incremental
+    differentialSchedule: "0 1 * * 1-6"
+    incrementalSchedule: "0 * * * *"
 
 backup:
   restoreRehearsal:
     enabled: false           # never in test or prod during the parallel run (G3, C7)
   moodledataSnapshot:
     enabled: false           # VolumeSnapshots don't suit file storage (C16); the C8 nightly backup replaces it
+  moodledata:
+    enabled: false           # true from the S11 commit-point upgrade (C8, J1)
+    size: 10Gi

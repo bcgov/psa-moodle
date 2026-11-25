@@ -56,6 +56,13 @@ spec:
       databases:
         - {{ .Values.postgres.user.database }}
       # No "options:" → standard read/write on the listed databases.
+    {{- if .Values.backup.moodledata.enabled }}
+    # The nightly moodledata backup's own role (C8): it can read mdl_files and create restore points, nothing more.
+    # Crunchy creates it and its Secret <cluster>-pguser-<name>; the grants are in init.sql and the cutover's load step.
+    - name: {{ .Values.backup.moodledata.dbUser }}
+      databases:
+        - {{ .Values.postgres.user.database }}
+    {{- end }}
 
   {{- if .Values.monitoring.enabled }}
   monitoring:
@@ -89,8 +96,13 @@ spec:
           # Schedules: pgBackRest cron, runs inside the backup sidecar.
           schedules:
             full: {{ .Values.postgres.pgbackrest.fullSchedule | quote }}
+            {{- with .Values.postgres.pgbackrest.differentialSchedule }}
+            differential: {{ . | quote }}
+            {{- end }}
             incremental: {{ .Values.postgres.pgbackrest.incrementalSchedule | quote }}
       # Operator-side retention policy. pgBackRest prunes after each full backup.
       global:
         repo1-retention-full: {{ .Values.postgres.pgbackrest.retentionFull | quote }}
-        repo1-retention-full-type: count
+        # C8/J4: "time" keeps point-in-time recovery for retentionFull DAYS, so a nightly set's restore point stays
+        # reachable; "count" keeps that many full backups.
+        repo1-retention-full-type: {{ .Values.postgres.pgbackrest.retentionFullType | default "count" }}
