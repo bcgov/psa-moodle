@@ -1,0 +1,20 @@
+{
+  "description": "Security scanning tools versions for the platform",
+  "generated_at": "2026-05-26T23:18:22Z",
+  "source_file": "example.versions.env",
+  "generator": "populate-dependency-manifests.sh",
+  "tools": {
+    "trivy": {
+      "version": "latest",
+      "description": "Container vulnerability scanner",
+      "usage": "Security scanning in CI/CD"
+    },
+    "docker_scout": {
+      "version": "latest",
+      "description": "Docker security analysis",
+      "usage": "Image vulnerability assessment"
+    }
+  },
+  "scan_frequency": "daily",
+  "alert_channels": ["rocket-chat", "github-issues"]
+}

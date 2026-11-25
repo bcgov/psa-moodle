@@ -1,0 +1,98 @@
+# build-exact — the replatform's exact-code images for one 950003 environment (runbook C10, C13, S7).
+#
+# Builds php, web and cron from core and add-ons at the commits in ops/replatform/exact-code.json, and refuses unless
+# the code tree's hash equals the one recorded from that environment's legacy pods. Run by hand only: nothing here
+# deploys, and nothing runs upgrade.php. Images are pushed only when registry credentials are configured; the summary
+# lists their digests for values-950003-<env>.yaml.
+name: build-exact
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Legacy environment whose exact code to build
+        required: true
+        type: choice
+        options: [dev, test, prod]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-exact-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: artifacts.developer.gov.bc.ca
+  REGISTRY_REPO: ${{ vars.EXACT_REGISTRY_REPO || 'a58ce1-tools/psa-moodle' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Exact code tree (refuses on any mismatch)
+        run: ops/replatform/build-exact-tree.sh build "${{ inputs.environment }}" ctx/html
+
+      - name: Image names
+        id: names
+        run: |
+          v=$(jq -r --arg e "${{ inputs.environment }}" '.environments[$e].version' ops/replatform/exact-code.json)
+          tag="exact-${{ inputs.environment }}-${v}-$(git rev-parse --short=7 HEAD)"
+          for c in php web cron; do echo "$c=$REGISTRY/$REGISTRY_REPO/$c:$tag" >> "$GITHUB_OUTPUT"; done
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Build (linux/amd64)
+        run: |
+          cp config/moodle/config.openshift.php ctx/config.php
+          cp ops/replatform/Containerfile.php-exact ctx/Containerfile
+          podman build --platform linux/amd64 --target runtime -f Containerfile.php -t localhost/psa-moodle-runtime:ci .
+          podman build --platform linux/amd64 --build-arg RUNTIME_IMAGE=localhost/psa-moodle-runtime:ci \
+            -t "${{ steps.names.outputs.php }}" ctx
+          podman build --platform linux/amd64 --build-arg PHP_IMAGE="${{ steps.names.outputs.php }}" \
+            -f Containerfile.web -t "${{ steps.names.outputs.web }}" .
+          podman build --platform linux/amd64 --build-arg PHP_IMAGE="${{ steps.names.outputs.php }}" \
+            -f Containerfile.cron -t "${{ steps.names.outputs.cron }}" .
+
+      - name: Check the code inside the image
+        run: |
+          got=$(podman run --rm --platform linux/amd64 "${{ steps.names.outputs.php }}" \
+            php -r 'require "/var/www/html/version.php"; echo $version;')
+          echo "version.php in the image: $got"
+          [ "$got" = "${{ steps.names.outputs.version }}" ]
+          podman run --rm --platform linux/amd64 "${{ steps.names.outputs.php }}" \
+            sh -c 'test ! -e /var/www/html/local/githubsync && test ! -e /var/www/html/info'
+
+      - name: Detect registry credentials
+        id: creds
+        env:
+          ARTIFACTORY_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+        run: |
+          if [ -n "$ARTIFACTORY_PASSWORD" ]; then echo "have=true" >> "$GITHUB_OUTPUT"; else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ARTIFACTORY_PASSWORD not set: built and verified, not pushed."
+          fi
+
+      - name: Push and record digests
+        if: steps.creds.outputs.have == 'true'
+        run: |
+          echo "${{ secrets.ARTIFACTORY_PASSWORD }}" | \
+            podman login "$REGISTRY" --username "${{ secrets.ARTIFACTORY_USERNAME }}" --password-stdin
+          podman push --digestfile php.digest "${{ steps.names.outputs.php }}"
+          podman push --digestfile web.digest "${{ steps.names.outputs.web }}"
+          podman push --digestfile cron.digest "${{ steps.names.outputs.cron }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "## exact-code images: ${{ inputs.environment }} (${{ steps.names.outputs.version }})"
+            echo
+            echo "Code tree verified against legacy: \`$(jq -r --arg e "${{ inputs.environment }}" '.environments[$e].tree_sha256' ops/replatform/exact-code.json)\`"
+            echo
+            for c in php web cron; do
+              if [ -f "$c.digest" ]; then echo "- $c: digest \`$(cat "$c.digest")\`"; else echo "- $c: built, not pushed"; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

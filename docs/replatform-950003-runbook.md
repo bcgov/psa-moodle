@@ -1013,6 +1013,17 @@ which happens as its own approved step.
   2026-11-25). The dev build is used only for Pass B (J3, V805). Every add-on, including `report_allbackups` and the
   theme, is at the commit that matches what legacy runs. **`local_githubsync` is excluded**, because E7 removes it from
   legacy (G1).
+- **The cluster images (C13, option A chosen 2026-11-25):** `ops/replatform/exact-code.json` pins, per environment, core
+  and every add-on to their commits, a four-file overlay (`ops/replatform/exact-overlay/<env>/`: legacy's own
+  `composer.json`, `composer.lock`, `favicon.ico`, `.github/security-tools.json`), and the **tree hash** recorded from the
+  code copied off that environment's legacy pods. `ops/replatform/build-exact-tree.sh build <env>` clones the commits
+  (submodules at their pins), applies the overlay, drops the agreed exclusions, and **refuses unless the hash matches**.
+  Rebuilt in Linux from GitHub on 2026-11-25, all three match: prod `5c42fd93…`, test `ab9f4afe…`, dev `e23ceb72…` (dev
+  is the `v4.5.15` release tag with newer `hvp` `8057ece2` and `psaelmsync` `9963cc01`, found by matching git blob
+  hashes; its build strips `.gitignore` files). The workflow `.github/workflows/build-exact.yml` (run by hand, per
+  environment) does this, builds php, web and cron for `linux/amd64`, checks `version.php` and the exclusions inside the
+  image, pushes only when registry credentials exist, and lists the digests for `values-950003-<env>.yaml`. It deploys
+  nothing and never runs `upgrade.php`.
 - **How (built 2026-11-25 for prod):** `Containerfile.php` now has a code-free `runtime` stage (`--target runtime`);
   `ops/replatform/Containerfile.php-exact` adds the context made by `prepare-exact-context.sh` from the read-only code
   copy; web and cron are built from it with `PHP_IMAGE`, as usual. The context drops `local/githubsync` (G1) and the

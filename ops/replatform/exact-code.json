@@ -1,0 +1,142 @@
+{
+  "_about": "Exact legacy code per environment (replatform runbook C10, C13, S7). build-exact-tree.sh clones core and each add-on at these commits (submodules at their pinned commits), applies the environment's overlay, and refuses unless the tree hash equals tree_sha256, computed from the code copied read-only from that environment's legacy pods on 2026-11-25. local_githubsync is left out (G1); so are the non-Moodle top-level entries legacy carries.",
+  "core_repo": "https://github.com/moodle/moodle",
+  "exclude_top_level": [
+    "config",
+    "config.php",
+    "example.versions.env",
+    "info",
+    "last_migration_timestamp",
+    "migrate-courses",
+    "openshift",
+    "vendor",
+    ".env",
+    ".env.generated",
+    "redis-stats.php"
+  ],
+  "exclude_paths": [
+    "local/githubsync"
+  ],
+  "environments": {
+    "prod": {
+      "version": "2024100711.04",
+      "release": "4.5.11+ (Build: 20260525)",
+      "core_commit": "32d78752a002b2e5c9401e2039b39c853f254536",
+      "addons": [
+        {
+          "path": "blocks/course_search",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/moodle-course-search",
+          "commit": "bdda41e6e02c7fc18960bacd01c8e98762c61045"
+        },
+        {
+          "path": "theme/bcgovpsa",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/bcgovpsa-moodle",
+          "commit": "62721920d6f5ec33c5edd6ab4db5d25d50ccafa3"
+        },
+        {
+          "path": "local/psaelmsync",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/psaelmsync",
+          "commit": "ce1e3b3295a4b243b7eec0b878ae73617795a1e7"
+        },
+        {
+          "path": "report/allbackups",
+          "repo": "https://github.com/catalyst/moodle-report_allbackups",
+          "commit": "a816aa7b3e6469f58454f2eaac5d94eb7d417517"
+        },
+        {
+          "path": "mod/hvp",
+          "repo": "https://github.com/h5p/moodle-mod_hvp",
+          "commit": "a36099fe8c1ac8c5836f42653a55c563b8a05953"
+        },
+        {
+          "path": "mod/pathcurator",
+          "repo": "https://github.com/itr8tech/pathcurator-moodle",
+          "commit": "537c95222641583c263d093cb301fea1815b5a91"
+        }
+      ],
+      "strip_gitignore": false,
+      "overlay": "ops/replatform/exact-overlay/prod",
+      "tree_sha256": "5c42fd93897c1d01928f01011043742055f7f0f892581d8d0dcc46091a75f468"
+    },
+    "test": {
+      "version": "2024100711.03",
+      "release": "4.5.11+ (Build: 20260519)",
+      "core_commit": "d94b3c54fc3a68b8864e5760393acd739197e256",
+      "addons": [
+        {
+          "path": "blocks/course_search",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/moodle-course-search",
+          "commit": "bdda41e6e02c7fc18960bacd01c8e98762c61045"
+        },
+        {
+          "path": "theme/bcgovpsa",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/bcgovpsa-moodle",
+          "commit": "62721920d6f5ec33c5edd6ab4db5d25d50ccafa3"
+        },
+        {
+          "path": "local/psaelmsync",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/psaelmsync",
+          "commit": "ce1e3b3295a4b243b7eec0b878ae73617795a1e7"
+        },
+        {
+          "path": "report/allbackups",
+          "repo": "https://github.com/catalyst/moodle-report_allbackups",
+          "commit": "a816aa7b3e6469f58454f2eaac5d94eb7d417517"
+        },
+        {
+          "path": "mod/hvp",
+          "repo": "https://github.com/h5p/moodle-mod_hvp",
+          "commit": "a36099fe8c1ac8c5836f42653a55c563b8a05953"
+        },
+        {
+          "path": "mod/pathcurator",
+          "repo": "https://github.com/itr8tech/pathcurator-moodle",
+          "commit": "537c95222641583c263d093cb301fea1815b5a91"
+        }
+      ],
+      "strip_gitignore": false,
+      "overlay": "ops/replatform/exact-overlay/test",
+      "tree_sha256": "ab9f4afeae0c9f0dd605efd7d1a202ad1518a90fc99aad433cc3065322e11230"
+    },
+    "dev": {
+      "version": "2024100715.00",
+      "release": "4.5.15 (Build: 20261005)",
+      "core_commit": "215f44380bdc3ccf852a3a22e34f8423ff64033a",
+      "addons": [
+        {
+          "path": "blocks/course_search",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/moodle-course-search",
+          "commit": "bdda41e6e02c7fc18960bacd01c8e98762c61045"
+        },
+        {
+          "path": "theme/bcgovpsa",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/bcgovpsa-moodle",
+          "commit": "62721920d6f5ec33c5edd6ab4db5d25d50ccafa3"
+        },
+        {
+          "path": "local/psaelmsync",
+          "repo": "https://github.com/PSA-Corporate-Learning-Branch/psaelmsync",
+          "commit": "9963cc018e2ca15433209ab4d897a659c99e0217"
+        },
+        {
+          "path": "report/allbackups",
+          "repo": "https://github.com/catalyst/moodle-report_allbackups",
+          "commit": "a816aa7b3e6469f58454f2eaac5d94eb7d417517"
+        },
+        {
+          "path": "mod/hvp",
+          "repo": "https://github.com/h5p/moodle-mod_hvp",
+          "commit": "8057ece2e25041d7cbc5d7252d5c404b2f72b778"
+        },
+        {
+          "path": "mod/pathcurator",
+          "repo": "https://github.com/itr8tech/pathcurator-moodle",
+          "commit": "537c95222641583c263d093cb301fea1815b5a91"
+        }
+      ],
+      "strip_gitignore": true,
+      "overlay": "ops/replatform/exact-overlay/dev",
+      "tree_sha256": "e23ceb72a5c6da331688959e99ada8f5c146fcd9ed3cfddc3ccbe6239ec6e3a2"
+    }
+  }
+}

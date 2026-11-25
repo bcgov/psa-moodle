@@ -1,0 +1,39 @@
+{
+  "name": "bcgov/moodle-php-dependencies",
+  "description": "PHP dependencies for Moodle deployment - Security-controlled versions from centralized management",
+  "type": "project",
+  "require": {
+    "php": ">=8.3",
+    "maennchen/zipstream-php": "^3.1.1"
+  },
+  "require-dev": {},
+  "config": {
+    "optimize-autoloader": true,
+    "prefer-stable": true,
+    "sort-packages": true,
+    "audit": {
+      "abandoned": "report"
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true,
+  "scripts": {
+    "security-audit": "composer audit --format=json",
+    "security-check": "composer audit --format=table",
+    "validate-lock": "composer validate --strict --check-lock",
+    "update-deps": "composer update --with-all-dependencies --dry-run"
+  },
+  "authors": [
+    {
+      "name": "Infrastructure Team",
+      "email": "infrastructure@gov.bc.ca"
+    }
+  ],
+  "license": "Apache-2.0",
+  "extra": {
+    "generated_at": "2026-05-23T22:10:18Z",
+    "source_file": "example.versions.env",
+    "generator": "populate-dependency-manifests.sh",
+    "purpose": "Centralized PHP dependency management for production and security scanning"
+  }
+}
