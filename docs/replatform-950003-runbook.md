@@ -1260,7 +1260,16 @@ created with `--internal`, so it has no route to the internet.
    its tables or settings after the pipeline. On a copy that **has** HTTPS egress (the dev profile, not `--internal`), its
    former URLs return 404, and no connection to GitHub is attempted.
 8. **Moodledata backup (V801–V803),** with the job image's own tools, against a local Postgres copy, local php and cron,
-   and a local moodledata:
+   and a local moodledata. **First results, 2026-11-25** (`scripts/ops/moodledata-backup.sh` in the ops image, against the
+   prod copy and its 2.4 GiB of files; pgBackRest stood in by a stub, so the real gate is for Pass A): first set, pause
+   24 s (drain 9 s, all 8,711 files copied and SHA-1-checked in 15 s, the 62 known gaps recorded); every later night, pause
+   9 s, nothing copied, the rest hard-linked (same inode, no extra space); two runs at once: the second exits on the lock;
+   an operator's maintenance file: skipped and left alone; a drain that never quiets (a Postgres worker owned by the
+   local superuser): the site reopened at the 5-minute limit, alert, night skipped; archive behind the restore point: not
+   published, previous sets kept, staging kept for diagnosis; rotation to the retention limit works. Fixed on the way:
+   the drain counts only client sessions; the job must run as the php pods' UID (`secret/key` is mode 0400), which
+   OpenShift's namespace default UID gives both; busybox has no `join`/`comm`. Still to test: the V801 sequence with
+   live file activity during the pause, a killed run (cron-loop clean-up), and the real pgBackRest gate. Cases:
    1. **the pause:** web requests get the maintenance page without opening a database connection; the cron loop starts no
       `cron.php`; a request still running when the pause starts holds the drain until it ends; each 5-minute limit reopens
       the site and skips the night;
