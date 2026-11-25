@@ -53,13 +53,14 @@ RUN find ${MOODLE_SRC} -name '.git' -type d -prune -exec rm -rf {} + \
  && find ${MOODLE_SRC} -name '.DS_Store' -delete
 
 # =============================================================================
-# Stage 2 — runtime: php-fpm 8.3.36 with Moodle's required extensions, no Moodle code.
+# Stage 2 — runtime: php-fpm 8.3.37 with Moodle's required extensions, no Moodle code.
 # Build it alone with `--target runtime`: the replatform's exact-code images (ops/replatform/Containerfile.php-exact)
 # start from it and add the code copied from legacy (runbook C10), so both kinds of image share one runtime.
 # =============================================================================
-# 2026-10-21 security release fixes CVE-2026-109618 and CVE-2026-109619.
+# 8.3.37 is a security release (https://www.php.net/releases/8_3_37.php); 8.3.36 has a critical CVE fixed there.
+# (8.3.36, 2026-10-21, fixed CVE-2026-109618 and CVE-2026-109619.)
 # Keep in sync with Containerfile.cron; Moodle 4.5 supports PHP through 8.3.
-FROM docker.io/library/php:8.3.36-fpm-bookworm AS runtime
+FROM docker.io/library/php:8.3.37-fpm-bookworm AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 

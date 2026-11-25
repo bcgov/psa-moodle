@@ -459,9 +459,10 @@ run (D1). Legacy cron is at 0, and the site is in CLI maintenance.
 - The psa-moodle image is built from the **head** of `MOODLE_405_STABLE` and of each plugin's branch
   (`Containerfile.php`, `git clone --depth=1 --branch`), so its exact code is not pinned. It **lacks `report_allbackups`**
   (6 add-ons against prod's 7).
-- Prod's PHP and cron were hand-patched on 2026-10-21 with `*-security-patch` images. The psa-moodle image has PHP 8.3.36.
-- psa-moodle's web image uses nginx **1.30.7** (`docker.io/nginx/nginx-unprivileged`, pinned by digest, 2026-11-20). The
-  November 2026 nginx advisories are fixed in it.
+- Prod's PHP and cron were hand-patched on 2026-10-21 with `*-security-patch` images. The psa-moodle images use PHP **8.3.37** (security release; updated 2026-11-25).
+- psa-moodle's web image uses nginx **1.30.8** (`docker.io/nginx/nginx-unprivileged`, pinned by digest, 2026-11-25). The
+  November 2026 nginx advisories are fixed in it, including CVE-2026-132779 (1.30.8). Legacy dev, test and prod were
+  patched by hand separately (owner, 2026-11-25).
 
 ### 5.2 Database (live, 2026-11-17 and 2026-11-18)
 - **Prod:** 719 tables (all InnoDB) and 5,250,571 rows. The dump is about 96–100 MB gzipped (710 MB of SQL). On disk: 486 MiB
@@ -1034,7 +1035,7 @@ which happens as its own approved step.
   the custom webroot files, which are not carried over (Q8). **Prod, 2026-11-25:** all 30,197 files in the image are
   byte-identical to the pod's; the 165 legacy files not in the image are exactly the exclusions above. Every add-on's `version.php` must **equal** `config_plugins` in
   the source dump.
-- **System packages:** `unoconv` and Ghostscript (§5.11); nginx 1.30.7 or later (§5.1).
+- **System packages:** `unoconv` and Ghostscript (§5.11); nginx 1.30.8 or later and PHP 8.3.37 or later (§5.1).
 - **C14, conversion runtime:** `ops/replatform/Containerfile.convert`. It has PHP 8.3 with `mysqli` **and**
   `pgsql`/`pdo_pgsql`, plus the exact Moodle code for each environment. It runs `tool_dbtransfer` in both directions; client
   versions are recorded.
@@ -1844,6 +1845,7 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-25 | **J4** A nightly pair is guaranteed only within pgBackRest's 8-day retention; alert at 3 days, escalate at 5 | Owner |
 | 2026-11-25 | **K1** The dev soak is two nights, run alongside Pass B and Pass C, with weekly and rare events forced by hand instead of waited for; test's bail-out window serves as prod's soak with real use (replaces the one-week soak; for review in v1.0) | Owner |
 | 2026-11-25 | **K2** (evidence in §5.13) During the migration weeks the site needs to be available only in business hours, and traffic after 16:00 is negligible. Cutover and return windows start at 17:00 Pacific and may run overnight; latest-abort times are set against the next business morning. J1's pause limits may be raised if Pass B's drains need it | Owner |
+| 2026-11-25 | psa-moodle images on PHP 8.3.37 (security release) and nginx 1.30.8 (CVE-2026-132779), web pinned by digest; legacy 950003-dev, test and prod already patched by hand | Owner |
 
 **Phase 0 findings (2026-11-18):** see [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md).
 The facts that change the plan are folded into §5 and §6.

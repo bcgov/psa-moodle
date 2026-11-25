@@ -14,12 +14,13 @@ FROM ${PHP_IMAGE} AS src
 # Upstream moved this image from `nginxinc/` to `nginx/` on Docker Hub; `nginxinc/nginx-unprivileged`
 # stopped at 1.30.6 / 1.31.7 and will not get security fixes. Same digest on ghcr.io/nginx/nginx-unprivileged.
 # Pinned by multi-arch index digest so a rebuild cannot silently change the base.
-FROM docker.io/nginx/nginx-unprivileged:1.30.7-alpine-slim@sha256:8432c57ac86f178741af2b89948bd9087cb9df1c415bc1ab4d23735c4f0e3e61
+# 1.30.8 (2026-11) also fixes CVE-2026-132779 (TLS 1.3 ssl_early_data CPU use; not exposed here: TLS ends at the router).
+FROM docker.io/nginx/nginx-unprivileged:1.30.8-alpine-slim@sha256:04c98c78c1de60ddeada00d7d2207dcd146ecd07b61b9941c9a5799cfb258d28
 
 # nginx-unprivileged runs as UID 101 ("nginx") by default and listens on 8080.
 USER 0
 # Guard: fail the build if the base is not the expected nginx (e.g. after an unreviewed FROM change).
-RUN nginx -v 2>&1 | grep -qx 'nginx version: nginx/1.30.7' \
+RUN nginx -v 2>&1 | grep -qx 'nginx version: nginx/1.30.8' \
  && apk add --no-cache curl
 
 # The site config is a template: nginx's entrypoint (20-envsubst-on-templates.sh) writes conf.d/default.conf from it at

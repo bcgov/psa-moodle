@@ -59,8 +59,9 @@ jobs:
 
       - name: Check the code inside the image
         run: |
+          # Read the $version line as text: version.php can't be loaded outside Moodle (it uses Moodle's constants).
           got=$(podman run --rm --platform linux/amd64 "${{ steps.names.outputs.php }}" \
-            php -r 'require "/var/www/html/version.php"; echo $version;')
+            sed -nE 's/^\$version *= *([0-9.]+).*/\1/p' /var/www/html/version.php)
           echo "version.php in the image: $got"
           [ "$got" = "${{ steps.names.outputs.version }}" ]
           podman run --rm --platform linux/amd64 "${{ steps.names.outputs.php }}" \

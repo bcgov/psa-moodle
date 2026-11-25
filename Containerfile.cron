@@ -9,9 +9,9 @@ ARG PHP_IMAGE=localhost/psa-moodle-php:dev
 FROM ${PHP_IMAGE} AS src
 
 # =============================================================================
-# 2026-10-21 security release fixes CVE-2026-109618 and CVE-2026-109619.
+# 8.3.37 is a security release (https://www.php.net/releases/8_3_37.php); 8.3.36 has a critical CVE fixed there.
 # Keep in sync with Containerfile.php; Moodle 4.5 supports PHP through 8.3.
-FROM docker.io/library/php:8.3.36-cli-bookworm
+FROM docker.io/library/php:8.3.37-cli-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 

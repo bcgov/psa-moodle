@@ -4,7 +4,8 @@
 # Moodle code is deliberately NOT baked in. Each run mounts the exact code tree copied from the
 # environment's legacy pods (S7: exact code, both directions), so one image serves dev, test and prod.
 # Every run records `php -v` and `php -m` in its log.
-FROM docker.io/library/php:8.3.36-cli-bookworm
+# 8.3.37: security release; keep in step with Containerfile.php.
+FROM docker.io/library/php:8.3.37-cli-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install --no-install-recommends -y \
