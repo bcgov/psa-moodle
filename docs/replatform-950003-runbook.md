@@ -1096,13 +1096,21 @@ which happens as its own approved step.
 **Safety and state**
 - `state-capture.sh <name>` / `state-restore.sh <name>` (S14): write, or restore exactly, an immutable named capture
   (`precutover`, `prereturn`). A capture holds maintenance mode, cron replicas, all Route YAML, the health monitor, replica
-  counts and `DB_NAME` for each consumer. The output is private (S9).
+  counts and `DB_NAME` for each consumer. The output is private (S9). *Written 2026-11-25:* capture is read-only (legacy's
+  maintenance state via its own `cfg.php`); restore is a dry run unless `--apply`, restores only legacy objects (Helm
+  owns the new stack's), and replaces Routes and env arrays whole. Tested read-only against legacy dev: a fresh capture
+  matches, and an altered copy produced exactly its four differences with the right commands. Legacy `DB_NAME` comes
+  from the `moodle-secrets` Secret on php, cron **and the pod-health-monitor**.
 - `writer-fence.sh` / `writer-unfence.sh` (S13, DR04, V501): work from an inventory of every ingress path (public,
   temporary and restricted Routes) and every writer (web, php, cron, application CronJobs and Jobs). The fence script:
   1. moves the Routes to the fence target;
   2. runs `helm upgrade` with the fenced profile, falling back to an imperative scale-to-0 and suspend if Helm fails, then
      retries the upgrade;
   3. runs `verify-fenced.sh`.
+
+  *Written 2026-11-25* (`writer-fence.sh`, `writer-unfence.sh`; to be exercised in Pass A). The chart's own Route moves
+  with the fenced profile via `migration.fenceService`; the fence page is `maintenance-message` where it exists (dev
+  running, prod at 0 replicas, **none in test**).
 
   Postgres stays up. Neither script needs the new application to respond. `writer-unfence.sh` upgrades with the normal
   profile.

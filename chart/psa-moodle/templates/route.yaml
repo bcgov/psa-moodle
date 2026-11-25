@@ -21,12 +21,22 @@ spec:
   {{- with .Values.route.host }}
   host: {{ . | quote }}
   {{- end }}
+  {{- if and (include "psa-moodle.fenced" .) .Values.migration.fenceService }}
+  # Fenced (S13): the Route serves the static fence page, so nothing reaches the new application.
+  to:
+    kind: Service
+    name: {{ .Values.migration.fenceService }}
+    weight: 100
+  port:
+    targetPort: {{ .Values.migration.fencePort }}
+  {{- else }}
   to:
     kind: Service
     name: {{ include "psa-moodle.fullname" . }}-web
     weight: 100
   port:
     targetPort: http
+  {{- end }}
   {{- if .Values.route.tls.enabled }}
   tls:
     termination: {{ .Values.route.tls.termination }}

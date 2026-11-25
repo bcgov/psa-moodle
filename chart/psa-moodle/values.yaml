@@ -23,6 +23,10 @@ image:
 # CronJobs suspended, outbound off. Any other value fails the render.
 migration:
   state: normal
+  # The static page the Routes point at while fenced (runbook "fence-target"), e.g. legacy's maintenance-message.
+  # Without it the chart's Route keeps its backend, and verify-fenced.sh fails, as it should.
+  fenceService: ""
+  fencePort: 8080
 
 # --- Install (C2) -------------------------------------------------------------------
 # false for a migrated site: no installer Job, and Moodle never generates a new encryption key (nokeygeneration, V602).
