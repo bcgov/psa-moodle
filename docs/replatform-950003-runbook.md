@@ -753,6 +753,18 @@ Each one needs a decision, recorded in §16.
   - Course developers' work is covered by the nightly database backup and the daily moodledata archive (newest only).
   - The replatform's backups replace this; see Q21.
 
+### 5.13 Traffic by hour (owner's query, read-only, 2026-11-25)
+Moodle's event log (`logstore_standard_log`, web and web-service events by real users), hourly, Pacific time:
+- **Prod, 1 October to 24 November 2026 (39 weekdays, 16 weekend days):** 92.2% of weekday events fall between 07:00
+  and 16:00, and 5.9% between 16:00 and 17:00. After 17:00 there is **1.5%**, and **no weekday hour after 17:00 had more
+  than 4 distinct users**; from 18:00 it was at most 2. Weekends total 1.7% of events, at most 2 users in any hour. The
+  busiest hour (10:00) reached 227 distinct users.
+- **Test, the 8 weeks before its maintenance began on 18 November:** 251 events in total, at most 2 users in any hour,
+  and one person, once (two events), after 17:00.
+- The prod web pods' access logs for 23–25 November agree.
+
+This is the basis for K2: windows start at 17:00, and a maintenance page outside business hours goes essentially unseen.
+
 ## 6. Open questions for the owner
 
 | ID | Question | Why it matters | Default if unanswered |
@@ -1284,7 +1296,7 @@ created with `--internal`, so it has no route to the internet.
        has been received but not logged; abandon; reconciliation finds both, re-sends only the unreceived one, and sends
        nothing twice;
     7. **backup capacity:** replacement activity (upload, then delete or replace, at the supported daily allowance)
-       over a full rotation, an interrupted run, and a space-short run that prunes to the floor of 3 and alerts, all
+       over a full rotation (runs started by hand, K1), an interrupted run, and a space-short run that prunes to the floor of 3 and alerts, all
        within the destination's size. Record the peak space used;
     8. **the backup pause (V801–V804)** on the real stack:
        - uploads, file-record copies and deletions right up to the pause and straight after it, with Moodle's own trash
@@ -1314,8 +1326,19 @@ created with `--internal`, so it has no route to the internet.
     Record the time taken and the complete-site recovery point (H1).
   - Run a full return (§14) **into the fixture's legacy pods** at this size, and record its duration and storage use
     (RB07). The returned database never meets code other than its own (S7).
-- **Soak for one week:** backups and their verification, the nightly pause's duration, alerts, and cron with the guard on
-  and no internet.
+- **Soak: two nights, alongside Pass B and Pass C, not after them (K1).** A week of an idle dev site adds little, so what
+  a week would show is triggered instead, and test's bail-out window is prod's soak with real use (§11 needs it closed):
+  - **every scheduled task run once** with `admin/cli/scheduled_task.php --execute=…`, guard on and no internet; `task_log`
+    shows no failures and no outbound attempt;
+  - a pgBackRest full, differential and incremental backup **triggered by hand**; the repository's peak use measured;
+  - backup Jobs started by hand from the CronJob template until **8 or more sets** exist, so rotation is exercised
+    (Pass B scenario 7);
+  - **every alert fired once on purpose** (a failed backup, a killed pod, a filling volume) and received (Q14);
+  - **two real 02:30 pauses** on the prod-sized Pass C stack, with durations recorded. Night 1 is the first run after the
+    window's set; night 2 is the first ordinary run that links unchanged files from the previous night;
+  - **48 hours of metrics:** no restarts, and flat memory in php, cron, Valkey and Postgres.
+
+  The stack must be in its normal state at 02:30 on both nights; Pass B fences are scheduled around that.
 - **Operator checklist:** a one-page checklist per window, kept beside this runbook, so a tired operator doesn't have to
   reconcile §11, §13 and §14.
 
@@ -1329,7 +1352,7 @@ reviewers and the owner.
   - tell the course developers about the window and the freeze on site-level administration (Q20); they already know
     automated course backups haven't run since May (Q21); and that the new site shows a maintenance page for about a
     minute at 02:30 each night while its backup runs (J1);
-  - agree the window;
+  - agree the window: from 17:00 Pacific, running overnight if needed; the site must be back by business hours (K2);
   - **E7 done in both test and prod** (G1);
   - take fresh verified backups of the database **and** moodledata;
   - build the test recovery package (S8), and pass Pass C for test (J3);
@@ -1356,7 +1379,7 @@ reviewers and the owner.
   Postgres instances and no restore drill in prod (G3). Update it with Pass A's admitted numbers if they're available.
 - **ELM contact (Q19):** the owner. Before the window, confirm with ELM how received completions can be checked.
 - **Tell the admins** that site-level administration is frozen for the bail-out window (Q20).
-- **Tell learners** and agree the window, including the nightly backup pause at 02:30 (J1).
+- **Tell learners** and agree the window (from 17:00 Pacific, K2), including the nightly backup pause at 02:30 (J1).
 - **E4 in prod:** scale prod's pod-health-monitor to 0 before the new stack is installed.
 - Build the prod recovery package (S8), and pass Pass C for prod (J3).
 - Provision and verify prod's static fence page (S13; scaled to 0 as of 2026-11-25).
@@ -1676,6 +1699,8 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-25 | **J2** The backup job never deletes live files; Moodle's stock trash cleanup stays on | Owner |
 | 2026-11-25 | **J3** Rehearsal matrix: Pass B on legacy dev's 4.5.15 with a dev build; Pass C per target on an isolated fixture built from its recovery package | Owner |
 | 2026-11-25 | **J4** A nightly pair is guaranteed only within pgBackRest's 8-day retention; alert at 3 days, escalate at 5 | Owner |
+| 2026-11-25 | **K1** The dev soak is two nights, run alongside Pass B and Pass C, with weekly and rare events forced by hand instead of waited for; test's bail-out window serves as prod's soak with real use (replaces the one-week soak; for review in v1.0) | Owner |
+| 2026-11-25 | **K2** (evidence in §5.13) During the migration weeks the site needs to be available only in business hours, and traffic after 16:00 is negligible. Cutover and return windows start at 17:00 Pacific and may run overnight; latest-abort times are set against the next business morning. J1's pause limits may be raised if Pass B's drains need it | Owner |
 
 **Phase 0 findings (2026-11-18):** see [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md).
 The facts that change the plan are folded into §5 and §6.
