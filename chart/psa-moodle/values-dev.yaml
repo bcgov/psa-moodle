@@ -3,6 +3,7 @@
 moodle:
   wwwroot: "https://psa-moodle-dev.apps.silver.devops.gov.bc.ca"
   debug: true
+  outbound: "on"            # not a copy of real data: keep email and ELM as before (C5)
 
 route:
   host: "psa-moodle-dev.apps.silver.devops.gov.bc.ca"

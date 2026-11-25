@@ -58,4 +58,36 @@ $CFG->reverseproxy = false;
 // --- Cron, CLI, paths ---
 $CFG->pathtophp = '/usr/local/bin/php';
 
+// --- Encryption key (replatform runbook §8.2, V602) ---
+// A migrated site brings its key from legacy's secret/. If that key is missing, fail loudly (encryption_nokey) instead
+// of letting Moodle generate a new one that can't read the values encrypted with the old key.
+if (getenv('MOODLE_INSTALL_ENABLED') === 'false') {
+    $CFG->nokeygeneration = true;
+}
+
+// --- Outbound guard (replatform runbook §8.2, C5, S11) ---
+// Until the commit point, a copy of real data must reach nobody: no email, no ELM, no web services, and site
+// administration limited to the named reviewers (G2). The chart sets MOODLE_OUTBOUND=on only at the commit point;
+// anything else, including unset, keeps the guard on. ops/replatform/check-outbound-guard.php prints the effect.
+if (getenv('MOODLE_OUTBOUND') !== 'on') {
+    $CFG->noemailever = true;
+    $CFG->enablewebservices = 0;
+    // local_psaelmsync's completion observer POSTs straight to completion_apiurl and doesn't check `enabled`, so the
+    // dead address is what stops it; `enabled` stops the sync task, and the task override below stops both tasks.
+    $CFG->forced_plugin_settings['local_psaelmsync'] = [
+        'apiurl'              => 'http://127.0.0.1:9/outbound-disabled',
+        'completion_apiurl'   => 'http://127.0.0.1:9/outbound-disabled',
+        'apitoken'            => '',
+        'completion_apitoken' => '',
+        'enabled'             => 0,
+        'notificationemails'  => '',
+    ];
+    $CFG->scheduled_tasks = [
+        '\local_psaelmsync\*' => ['schedule' => '* * * * *', 'disabled' => 1],
+    ];
+    // Reviewer-only administration: only these user ids are site admins while the guard is on. Unset means none.
+    $CFG->siteadmins = implode(',', array_filter(array_map('intval',
+        explode(',', (string)getenv('MOODLE_REVIEWER_ADMINS')))));
+}
+
 require_once(__DIR__ . '/lib/setup.php');

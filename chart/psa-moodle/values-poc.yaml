@@ -38,6 +38,7 @@ image:
 moodle:
   wwwroot: "https://psa-moodle-dev.apps.silver.devops.gov.bc.ca"
   debug: true
+  outbound: "on"            # not a copy of real data: keep email and ELM as before (C5)
 
 # --- Cron: long-running Deployment that loops cron.php every 60s ---------------
 # Inherits cron.mode=deployment from values.yaml. This replaced the original

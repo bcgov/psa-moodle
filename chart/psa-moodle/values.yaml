@@ -18,10 +18,20 @@ image:
   ops:
     name: ops
 
+# --- Install (C2) -------------------------------------------------------------------
+# false for a migrated site: no installer Job, and Moodle never generates a new encryption key (nokeygeneration, V602).
+install:
+  enabled: true
+
 # --- Moodle application config -------------------------------------------------
 moodle:
   wwwroot: ""                # required — set per environment
   debug: false
+  # Outbound guard (replatform runbook C5, §8.2). Anything but "on" keeps a copy of real data from emailing anyone,
+  # calling ELM or serving web services, and makes only reviewerAdmins site admins (G2). Set "on" at the commit point
+  # (S11), or for a site that isn't a copy of real data. ops/replatform/check-outbound-guard.php shows the effect.
+  outbound: "off"
+  reviewerAdmins: ""         # comma-separated Moodle user ids that are site admins while outbound is not "on"
   # Admin user, used by the post-install Job to seed the install on first deploy.
   # Stored in a Secret; rotate after install.
   admin:

@@ -9,6 +9,7 @@ this hook runs only on `helm install` (not `helm upgrade`). For schema
 upgrades on subsequent app upgrades, use `kubectl exec deploy/<release>-php
 -- php admin/cli/upgrade.php`, or wire a separate upgrade hook later.
 */ -}}
+{{- if .Values.install.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -105,3 +106,4 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 512Mi
+{{- end }}

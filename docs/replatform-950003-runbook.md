@@ -534,7 +534,9 @@ run (D1). Legacy cron is at 0, and the site is in CLI maintenance.
   database events), but file dates reflect copies and restores, so their origin can't be told from metadata.
 - **Durable dataroot items besides `filedir`** (RB07):
   - `lang/` (language customisations);
-  - `secret/` (Moodle's encryption key lives in `secret/key` unless configured elsewhere);
+  - `secret/` (Moodle's encryption key lives in `secret/key` unless configured elsewhere). On the 18 November prod copy,
+    no configuration value is encrypted with it, and the MFA secrets and OAuth 2 system-account tables are empty, so
+    today little depends on the key; it is still carried over, and the canary (§8.3) proves it works;
   - `antivirus_quarantine/` and `.quarantine-20260826T190745Z/`;
   - `muc/config.php`, Moodle's cache-store configuration. It points at the **legacy Redis** and is never copied.
 
@@ -853,14 +855,17 @@ which happens as its own approved step.
 ### 8.1 Chart and pipeline changes
 - **C1:** render nginx's FastCGI upstream from the release's own php Service (for example a ConfigMap carrying
   `fastcgi_pass <fullname>-php:9000`), and delete the literal `php` Service.
-- **C2:** add `install.enabled` (default `true`). Migrated installs set it to `false`.
+- **C2:** add `install.enabled` (default `true`). Migrated installs set it to `false`. *Done 2026-11-25:* it gates the
+  installer Job and sets `MOODLE_INSTALL_ENABLED` (which turns on `nokeygeneration`).
 - **C3:** add `cron.enabled`, so cron runs 0 or 1 replicas. Every 950003 values file keeps `cron.mode: deployment` with
   `intervalSeconds: 60`. Moodle expects a cron run every minute, and on Silver Kyverno throttles a CronJob that mounts a PVC
   to hourly (recorded in `cron-deployment.yaml` from the PoC), so cron is a one-pod loop, never a CronJob. The loop doesn't
   start `cron.php` while the backup's `climaintenance.html` is present, and removes a backup-marked one older than
   15 minutes (C8). It never touches an operator's maintenance file.
 - **C4:** scope every NetworkPolicy to release selector labels; no `podSelector: {}` anywhere.
-- **C5:** add `moodle.outbound: off | on` (default `off`), which sets `MOODLE_OUTBOUND` for php and cron (§8.2).
+- **C5:** add `moodle.outbound: off | on` (default `off`), which sets `MOODLE_OUTBOUND` for php and cron (§8.2). *Done
+  2026-11-25,* with `moodle.reviewerAdmins` (`MOODLE_REVIEWER_ADMINS`, G2). The existing PoC values files set `on`, so
+  those sites keep today's behaviour.
 - **C6:** add `values-950003-{dev,test,prod}.yaml` with:
   - temporary hostnames;
   - the image home and the per-environment image digest (C10);
@@ -1011,6 +1016,10 @@ which happens as its own approved step.
     the commit point (`MOODLE_OUTBOUND=on`) returns site administration to the database's own setting;
   - `$CFG->scheduled_tasks` disables the `local_psaelmsync` tasks. Verify the 4.5 syntax.
   - `ops/replatform/check-outbound-guard.php` prints the effective values and runs at every checkpoint.
+  - *Implemented 2026-11-25 and verified on the local prod copy:* with the guard on, every item above holds (both ELM
+    URLs dead, tokens and notification emails empty, both ELM tasks disabled, only the named reviewer is a site admin,
+    `nokeygeneration` on, `local_githubsync` absent); with `MOODLE_OUTBOUND=on`, the database's own values return. The
+    ELM completion observer never checks `enabled`, so the dead `completion_apiurl` is what stops it.
 - **Admins on a guarded copy** must not mark real courses complete. Acceptance uses **synthetic** records (§15, RB11).
 - Decide each legacy setting in §5.11 and record the decision in §16.
 - A migrated site gets its own Valkey cache configuration; `muc/config.php` is never copied.

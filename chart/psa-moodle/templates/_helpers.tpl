@@ -197,6 +197,12 @@ duplicate them in our own Secret.
   value: {{ required "moodle.wwwroot is required (set in values-<env>.yaml)" .Values.moodle.wwwroot | quote }}
 - name: MOODLE_BEHIND_PROXY
   value: "1"
+- name: MOODLE_OUTBOUND
+  value: {{ .Values.moodle.outbound | default "off" | quote }}
+- name: MOODLE_REVIEWER_ADMINS
+  value: {{ .Values.moodle.reviewerAdmins | default "" | quote }}
+- name: MOODLE_INSTALL_ENABLED
+  value: {{ .Values.install.enabled | toString | quote }}
 {{- if .Values.moodle.debug }}
 - name: MOODLE_DEBUG
   value: "1"
