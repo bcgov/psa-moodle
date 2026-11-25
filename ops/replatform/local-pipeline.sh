@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Local forward conversion, legacy MariaDB -> Postgres (runbook §8.3 local-pipeline.sh, §8.4 steps 1-2).
+# Local conversions (runbook §8.3 local-pipeline.sh, §8.4 steps 1, 2 and 5):
+#   forward, legacy MariaDB -> Postgres, and reverse, Postgres -> a fresh MariaDB `moodle_bailout` (D3).
 #
 # Runs entirely on the laptop, on a Podman network created with --internal (no internet).
 # Data, code copies, logs and outputs stay in an owner-only work folder (S9); nothing goes to git.
 #
 #   local-pipeline.sh <env> <step>
 #     env:  prod | test | dev
-#     step: prepare-code | schema-check | clean-source | e7-uninstall | normalise-nulls | version-check |
-#           start-postgres | migrate | dump | all
+#     step: start-mariadb | load (DUMP=<file.sql.gz>) | prepare-code | schema-check | clean-source | e7-uninstall |
+#           normalise-nulls | version-check | start-postgres | migrate | counts | dump | reverse | reverse-counts |
+#           all (prepare-code through dump)
 #
 # Expects (made by the operator, see the runbook):
 #   - container rp-mariadb-<env> on network replatform-local, with the environment's dump loaded into `moodle`;
@@ -25,6 +27,7 @@ SCRATCH=$WORK/dataroot-$ENV_NAME
 LOGS=$WORK/logs
 NET=replatform-local
 MARIA=rp-mariadb-$ENV_NAME
+RETURN=rp-mariadb-$ENV_NAME-return
 PG=rp-postgres-$ENV_NAME
 IMAGE=localhost/psa-moodle-convert:dev
 PASS=$(cat "$WORK/.dbpass")
@@ -35,12 +38,55 @@ log() { printf '%s [%s %s] %s\n' "$(date -u +%FT%TZ)" "$ENV_NAME" "$STEP" "$*" |
 # No -i: an exec that reads stdin would swallow the input of any surrounding `while read` loop.
 maria() { podman exec "$MARIA" mariadb -uroot -p"$PASS" -N -B moodle "$@"; }
 
+pg() { podman exec "$PG" psql -U moodle -d moodle -AtF $'\t' "$@"; }
+
+start_maria_container() { # name, database
+  podman rm -f "$1" >/dev/null 2>&1 || true
+  podman volume rm -f "$1" >/dev/null 2>&1 || true
+  podman run -d --name "$1" --network "$NET" --platform linux/arm64 -v "$1:/var/lib/mysql" \
+    -e MARIADB_ROOT_PASSWORD="$PASS" -e MARIADB_DATABASE="$2" docker.io/library/mariadb:10.6.20 \
+    --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --max-allowed-packet=1G \
+    --innodb-buffer-pool-size="${MARIA_BUFFER:-1G}" --innodb-log-file-size=512M \
+    --innodb-flush-log-at-trx-commit=2 --skip-log-bin >/dev/null
+  # The entrypoint runs a temporary server first; wait for the real one to accept the root password.
+  for _ in $(seq 1 90); do
+    podman exec "$1" mariadb -uroot -p"$PASS" -N -e "select 1" >/dev/null 2>&1 && return 0; sleep 2
+  done
+  log "MariaDB $1 did not start"; exit 1
+}
+
+# Per-table exact row counts, sorted, as "table<TAB>count" (prefix stripped).
+counts_maria() { # container, database
+  local tables q
+  tables=$(podman exec "$1" mariadb -uroot -p"$PASS" -N -B -e \
+    "select table_name from information_schema.tables where table_schema='$2' order by 1")
+  q=$(echo "$tables" | awk '{printf "%sSELECT \x27%s\x27, COUNT(*) FROM `%s`", (NR>1?" UNION ALL ":""), $1, $1}')
+  podman exec "$1" mariadb -uroot -p"$PASS" -N -B "$2" -e "$q" | sort
+}
+counts_pg() {
+  local q
+  q=$(pg -c "select substr(table_name,5) from information_schema.tables where table_schema='public' order by 1" \
+      | awk '{printf "%sSELECT \x27%s\x27, COUNT(*) FROM mdl_%s", (NR>1?" UNION ALL ":""), $1, $1}')
+  pg -c "$q" | sort
+}
+
 # Run PHP from the work copy of the exact code, against the source database.
 php_src() {
   podman run --rm --network "$NET" --platform linux/arm64 --user 0 \
     -v "$CODE:/var/www/html" -v "$SCRATCH:/data/moodledata" \
     -e SRC_DBTYPE=mariadb -e SRC_DBHOST="$MARIA" -e SRC_DBUSER=root -e SRC_DBPASS="$PASS" -e SRC_PREFIX='' \
     "$IMAGE" php "$@"
+}
+
+start_mariadb() { start_maria_container "$MARIA" moodle; log "started $MARIA"; }
+
+load_dump() {
+  local dump=${DUMP:?set DUMP=<file.sql.gz>} start=$SECONDS
+  if [ -f "$(dirname "$dump")/SHA256SUMS.txt" ]; then
+    (cd "$(dirname "$dump")" && grep " $(basename "$dump")\$" SHA256SUMS.txt | shasum -a 256 -c -) >&2
+  fi
+  gzip -dc "$dump" | podman exec -i "$MARIA" mariadb -uroot -p"$PASS" moodle
+  log "loaded $(basename "$dump") in $((SECONDS - start))s: $(maria -e "select count(*) from information_schema.tables where table_schema='moodle'") tables, version $(maria -e "select value from config where name='version'")"
 }
 
 prepare_code() {
@@ -142,6 +188,44 @@ migrate() {
   log "migrate done in $((SECONDS - start))s"
 }
 
+counts() {
+  # Forward: identical per-table row counts, apart from tables tool_dbtransfer skips (not in XMLDB).
+  counts_maria "$MARIA" moodle > "$LOGS/counts-$ENV_NAME-mariadb.tsv"
+  counts_pg > "$LOGS/counts-$ENV_NAME-postgres.tsv"
+  local skipped
+  skipped=$(comm -23 <(cut -f1 "$LOGS/counts-$ENV_NAME-mariadb.tsv") <(cut -f1 "$LOGS/counts-$ENV_NAME-postgres.tsv") | tr '\n' ' ')
+  log "not converted (not in XMLDB): ${skipped:-none}"
+  if join -t $'\t' "$LOGS/counts-$ENV_NAME-mariadb.tsv" "$LOGS/counts-$ENV_NAME-postgres.tsv" | awk -F'\t' '$2!=$3{print; bad=1} END{exit bad}'; then
+    log "row counts identical: $(wc -l < "$LOGS/counts-$ENV_NAME-postgres.tsv" | tr -d ' ') tables, $(awk -F'\t' '{s+=$2} END{print s}' "$LOGS/counts-$ENV_NAME-postgres.tsv") rows"
+  else
+    log "ROW COUNT MISMATCH (above)"; exit 1
+  fi
+}
+
+reverse() {
+  # Return direction (§14.2): Postgres -> an empty MariaDB `moodle_bailout`, prefix '' as legacy uses.
+  start_maria_container "$RETURN" moodle_bailout
+  log "tool_dbtransfer migrate.php pgsql -> mariadb moodle_bailout, prefix ''"
+  local start=$SECONDS
+  podman run --rm --network "$NET" --platform linux/arm64 --user 0 \
+    -v "$CODE:/var/www/html" -v "$SCRATCH:/data/moodledata" \
+    -e SRC_DBTYPE=pgsql -e SRC_DBHOST="$PG" -e SRC_DBUSER=moodle -e SRC_DBPASS="$PASS" -e SRC_PREFIX=mdl_ \
+    ${RP_DEBUG:+-e RP_DEBUG=1} "$IMAGE" php admin/tool/dbtransfer/cli/migrate.php --dbtype=mariadb --dbhost="$RETURN" \
+    --dbname=moodle_bailout --dbuser=root --dbpass="$PASS" --prefix='' > "$LOGS/reverse-$ENV_NAME.txt" 2>&1 \
+    || { log "REVERSE FAILED after $((SECONDS - start))s (see $LOGS/reverse-$ENV_NAME.txt)"; exit 1; }
+  log "reverse done in $((SECONDS - start))s"
+}
+
+reverse_counts() {
+  counts_pg > "$LOGS/counts-$ENV_NAME-postgres.tsv"
+  counts_maria "$RETURN" moodle_bailout > "$LOGS/counts-$ENV_NAME-bailout.tsv"
+  if diff "$LOGS/counts-$ENV_NAME-postgres.tsv" "$LOGS/counts-$ENV_NAME-bailout.tsv" >&2; then
+    log "reverse row counts identical: $(wc -l < "$LOGS/counts-$ENV_NAME-bailout.tsv" | tr -d ' ') tables, $(awk -F'\t' '{s+=$2} END{print s}' "$LOGS/counts-$ENV_NAME-bailout.tsv") rows"
+  else
+    log "REVERSE ROW COUNT MISMATCH (above)"; exit 1
+  fi
+}
+
 dump() {
   local out="$WORK/$ENV_NAME-postgres-$(date -u +%Y%m%dT%H%M%SZ).dump"
   podman exec "$PG" pg_dump -U moodle -d moodle -Fc > "$out"
@@ -150,6 +234,8 @@ dump() {
 }
 
 case "$STEP" in
+  start-mariadb)  start_mariadb ;;
+  load)           load_dump ;;
   prepare-code)   prepare_code ;;
   schema-check)   schema_check ;;
   clean-source)   clean_source ;;
@@ -158,7 +244,10 @@ case "$STEP" in
   version-check)  version_check ;;
   start-postgres) start_postgres ;;
   migrate)        migrate ;;
+  counts)         counts ;;
   dump)           dump ;;
-  all) prepare_code; schema_check; clean_source; e7_uninstall; normalise_nulls; version_check; start_postgres; migrate; dump ;;
+  reverse)        reverse ;;
+  reverse-counts) reverse_counts ;;
+  all) prepare_code; schema_check; clean_source; e7_uninstall; normalise_nulls; version_check; start_postgres; migrate; counts; dump ;;
   *) echo "unknown step: $STEP" >&2; exit 2 ;;
 esac

@@ -492,9 +492,16 @@ run (D1). Legacy cron is at 0, and the site is in CLI maintenance.
   - Converting them back to text in legacy is **not** part of this plan.
 - **Three more leftover tables, all empty in prod** (found 2026-11-25): `name`, `tool_lockstats_history` and
   `tool_lockstats_locks`. `tool_dbtransfer` skips them (they aren't in XMLDB), so they're expected differences.
-- **First local forward conversion of prod (2026-11-25, laptop):** load 92 s; `tool_dbtransfer` **607 s**; 511 tables
-  and **5,146,273 rows, identical per-table counts** on both sides. Full content comparison (`compare-content.sh`) is
-  still to be built.
+- **First local forward conversions (2026-11-25, laptop, `ops/replatform/local-pipeline.sh`):**
+
+  | | Load | Forward (to Postgres) | Reverse (to `moodle_bailout`) | Tables | Rows | `compare-content`, both directions |
+  |---|---:|---:|---:|---:|---:|---|
+  | Prod (post-fix dump, 18 Nov) | 92 s | **607 s** | **425 s** | 511 | 5,146,273 | every value identical except `log_display` (rebuilt) |
+  | Test (17 Nov dump) | 10 s | 59 s | 76 s | 511 | 310,029 | the same |
+
+  So the full round trip, MariaDB to Postgres and back, changes no data. Both have the same three empty leftover tables,
+  which are not converted. Test needed no NULL filling. Still to come in §8.4: new writes before the reverse (accent-
+  distinct tags, RB08), booting each stack against the result, and the timings on the cluster.
 - **Nullable drift (found 2026-11-25 on a local copy of the post-fix prod dump).** `check_database_schema.php` also
   reports **72 columns that Moodle's XMLDB defines as NOT NULL but are nullable in prod** (29 tables, including `user`,
   `course`, `question` and `forum_posts`), and four default or length differences in `local_psaelmsync_logs`. No row
@@ -1019,8 +1026,10 @@ which happens as its own approved step.
   4. **Stop if any version differs** from the image (S7).
   5. Run `migrate.php --dbtype=pgsql --prefix=mdl_ …` with the C14 runtime.
   6. `pg_dump -Fc`.
-- `compare-content.sh` (R12): per-row and per-table SHA-256 over all column types, with the prefix mapped and binary columns
-  normalised to UTF-8 text. `expected-differences.md` lists each accepted difference:
+- `compare-content.sh` (R12), built as `compare-content.php` with `compare-local.sh`: reads both databases through
+  Moodle's own DML (so each side's prefix and driver are handled the same way), merges them in id order, and hashes
+  every row with SHA-256 over all columns. A column binary on one side and text on the other compares as raw bytes;
+  numbers compare by value. It reports table names, row ids and column names only, never values. `expected-differences.md` lists each accepted difference:
   - `log_display` (rebuilt by `tool_dbtransfer`);
   - `search_simpledb_index` (rebuilt on the target with `search/cli/indexer.php --reindex`, never compared);
   - the dropped tables and trigger;
