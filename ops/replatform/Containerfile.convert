@@ -1,0 +1,25 @@
+# C14 conversion runtime (runbook §8.2): PHP 8.3 CLI with BOTH database drivers, mysqli for the
+# legacy MariaDB side and pgsql for the new Postgres side, so tool_dbtransfer can run either way.
+#
+# Moodle code is deliberately NOT baked in. Each run mounts the exact code tree copied from the
+# environment's legacy pods (S7: exact code, both directions), so one image serves dev, test and prod.
+# Every run records `php -v` and `php -m` in its log.
+FROM docker.io/library/php:8.3.36-cli-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install --no-install-recommends -y \
+      libfreetype-dev libjpeg62-turbo-dev libpng-dev libwebp-dev \
+      libzip-dev libxml2-dev libxslt-dev libonig-dev libicu-dev libpq-dev \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+RUN chmod 755 /usr/local/bin/install-php-extensions \
+ && install-php-extensions gd intl exif mbstring mysqli pdo_pgsql pgsql soap xsl zip
+
+# A conversion is one long CLI run: no memory or time limit.
+RUN printf 'memory_limit=-1\nmax_input_vars=5000\nmax_execution_time=0\nerror_reporting=E_ALL\ndisplay_errors=stderr\n' \
+      > "$PHP_INI_DIR/conf.d/zz-convert.ini"
+
+WORKDIR /var/www/html
+USER 1000:1000

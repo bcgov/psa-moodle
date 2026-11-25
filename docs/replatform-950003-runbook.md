@@ -304,8 +304,12 @@ Also in v0.9:
     2. `php admin/cli/uninstall_plugins.php --plugins=local_githubsync --run` in a legacy php pod. Phase 1 confirms the
        exact 4.5 syntax.
     3. Remove `local/githubsync` from the legacy code volume (`moodle-app-data`), so Moodle doesn't offer to reinstall it.
-    4. Verify: `admin/cli/upgrade.php --is-pending` reports nothing pending; the plugin is gone from the plugin list; the
-       site works.
+    4. `php admin/cli/upgrade.php --non-interactive`. **Required:** `uninstall_plugin()` blanks `allversionshash`
+       (`lib/adminlib.php`), so until this runs Moodle reports an upgrade pending and **`cron.php` refuses to run**. With
+       every version unchanged, it only recomputes the two version hashes, bumps the cache revision counters and sets
+       `registrationpending`; no schema, version or `upgrade_log` change (proven on the local prod copy, 2026-11-25).
+    5. Verify: `admin/cli/upgrade.php --is-pending` reports nothing pending; cron runs; the plugin is gone from the plugin
+       list; the site works.
 
     Rollback: restore the code directory, then run Moodle's install of that one plugin, and reload its saved rows if wanted.
     Afterwards, prod and test still run identical plugin sets (454).
@@ -440,6 +444,10 @@ run (D1). Legacy cron is at 0, and the site is in CLI maintenance.
 - **Prod** is Moodle `4.5.11+ (Build: 20260525)`, version `2024100711.04`. **Test** is Build 20260519, version `2024100711.03`.
   Both have `backup_version` `2024100700`. Both run MariaDB 10.6.20.
 - All 455 plugin versions are identical in prod and test.
+- **Exact code, copied 2026-11-25** (read-only, checksums matched against the pods) to the private folder
+  `legacy-code-20261125/`. Prod's core is `MOODLE_405_STABLE` at `32d78752`, test's at `d94b3c54`; dev (4.5.15) has no
+  `.git`. Prod and test differ in 71 files (34 in `mod/hvp`, the rest in add-ons, core `version.php` and Composer
+  files). All three environments run the same php image; the code lives on each `moodle-app-data` volume.
 - The psa-moodle image is built from the **head** of `MOODLE_405_STABLE` and of each plugin's branch
   (`Containerfile.php`, `git clone --depth=1 --branch`), so its exact code is not pinned. It **lacks `report_allbackups`**
   (6 add-ons against prod's 7).
@@ -482,6 +490,21 @@ run (D1). Legacy cron is at 0, and the site is in CLI maintenance.
   - After the 2026-11-18 fix every value in them is valid UTF-8.
   - **Test does not have this drift:** its only binary-typed columns are ASCII `sha256hash` fields.
   - Converting them back to text in legacy is **not** part of this plan.
+- **Three more leftover tables, all empty in prod** (found 2026-11-25): `name`, `tool_lockstats_history` and
+  `tool_lockstats_locks`. `tool_dbtransfer` skips them (they aren't in XMLDB), so they're expected differences.
+- **First local forward conversion of prod (2026-11-25, laptop):** load 92 s; `tool_dbtransfer` **607 s**; 511 tables
+  and **5,146,273 rows, identical per-table counts** on both sides. Full content comparison (`compare-content.sh`) is
+  still to be built.
+- **Nullable drift (found 2026-11-25 on a local copy of the post-fix prod dump).** `check_database_schema.php` also
+  reports **72 columns that Moodle's XMLDB defines as NOT NULL but are nullable in prod** (29 tables, including `user`,
+  `course`, `question` and `forum_posts`), and four default or length differences in `local_psaelmsync_logs`. No row
+  holds a NULL in any of the 72. **The binary-typed columns hide the same drift** (the check reports only their type):
+  `user.timezone` has **4,036 NULLs** and `course.format` **1** (course 231), and the first conversion attempt stopped on
+  it. The pipeline therefore fills such NULLs with Moodle's own XMLDB default, in the local copy only, and lists each
+  change as an expected difference: `user.timezone` → `99` (use the site timezone, which Moodle already does for an empty
+  value) and `course.format` → `topics` (the site default format, which Moodle already falls back to). A NOT NULL column
+  with NULLs and no default stops the pipeline for a decision. The target is built from XMLDB, so Postgres enforces NOT
+  NULL again, and a return restores the constraint in `moodle_bailout` too.
 - **Collation differs** (RB08). Legacy uses `utf8mb4_unicode_ci`, where `cafe` equals `café`. The PoC's Postgres 15
   (`en_US.utf-8`, deterministic) treats them as different. Prod's `tag` table has a unique index on `(tagcollid, name)`. So
   accent-distinct values accepted by the new site can collide in a reverse conversion. The 950003 Postgres collation is
@@ -989,8 +1012,10 @@ which happens as its own approved step.
 - `local-pipeline.sh`:
   1. Restore the dump into MariaDB 10.6.20.
   2. Run `check_database_schema.php`; expect only the §5.2 items.
-  3. In the local copy only, drop the reviewed extra tables **and the trigger** (O4). If the source predates E7, also drop
-     `local_githubsync`'s tables and its `config_plugins` rows (G1).
+  3. In the local copy only, drop the reviewed extra tables **and the trigger** (O4). If the source predates E7, run the
+     E7 uninstall in the copy, including its `upgrade.php` hash refresh (G1).
+  3a. In the local copy only, fill NULLs in XMLDB NOT NULL columns with Moodle's default (`xmldb-notnull.py`, §5.2), and
+     record each change for `expected-differences.md`.
   4. **Stop if any version differs** from the image (S7).
   5. Run `migrate.php --dbtype=pgsql --prefix=mdl_ …` with the C14 runtime.
   6. `pg_dump -Fc`.
@@ -999,7 +1024,9 @@ which happens as its own approved step.
   - `log_display` (rebuilt by `tool_dbtransfer`);
   - `search_simpledb_index` (rebuilt on the target with `search/cli/indexer.php --reindex`, never compared);
   - the dropped tables and trigger;
-  - `local_githubsync`'s tables and settings, when the source predates E7.
+  - `local_githubsync`'s tables and settings, when the source predates E7, and the hash and cache-revision rows its
+    `upgrade.php` refresh changes;
+  - the NULLs filled with XMLDB defaults (step 3a, `normalised-nulls-<env>.tsv`).
 
   Any difference not on the list is a no-go.
 - **moodledata copy (O1):** `referenced-files.sql` lists the distinct `contenthash` values in `files` (excluding `.`).
