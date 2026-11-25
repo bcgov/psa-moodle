@@ -21,6 +21,9 @@ done
 CAP="$HOME/Moodle/private-backups/state-$NS-$NAME"
 [ -d "$CAP" ] || { echo "no capture $CAP" >&2; exit 1; }
 (cd "$CAP" && shasum -a 256 -c SHA256SUMS >/dev/null) || { echo "capture checksums do not match" >&2; exit 1; }
+# RESTORE_SCOPE limits what is restored (default: everything), e.g. RESTORE_SCOPE=env,configmaps for bailout-unswitch.sh.
+SCOPE=",${RESTORE_SCOPE:-replicas,env,cronjobs,configmaps,routes,maintenance},"
+in_scope() { [[ "$SCOPE" == *",$1,"* ]]; }
 TMP=$(mktemp -d "$HOME/Moodle/private-backups/.restore-XXXXXX"); trap 'rm -rf "$TMP"' EXIT
 changes=0
 
@@ -43,8 +46,9 @@ while read -r item; do
   live=$(jq -c --arg k "$kind" --arg n "$name" '.items[] | select(.kind == $k and .metadata.name == $n)' <<< "$current")
   if [ -z "$live" ]; then echo "MISSING $kind/$name (not recreated by this script)"; changes=$((changes + 1)); continue; fi
   want=$(jq -r .replicas <<< "$item"); have=$(jq -r .spec.replicas <<< "$live")
-  [ "$want" != "$have" ] && do_cmd "$kind/$name replicas $have -> $want" oc scale -n "$NS" "$lkind/$name" --replicas="$want"
+  in_scope replicas && [ "$want" != "$have" ] && do_cmd "$kind/$name replicas $have -> $want" oc scale -n "$NS" "$lkind/$name" --replicas="$want"
   n=$(jq '.env | length' <<< "$item")
+  in_scope env || n=0
   for ((i = 0; i < n; i++)); do
     cname=$(jq -r ".env[$i].container" <<< "$item"); wantenv=$(jq -c ".env[$i].env" <<< "$item")
     idx=$(jq --arg c "$cname" '[.spec.template.spec.containers[].name] | index($c)' <<< "$live")
@@ -59,7 +63,7 @@ while read -r item; do
 done < <(jq -c '.[]' "$CAP/workloads.json")
 
 # 2. CronJobs.
-while read -r cj; do
+in_scope cronjobs && while read -r cj; do
   is_release "$(jq -c .labels <<< "$cj")" && continue
   name=$(jq -r .name <<< "$cj"); want=$(jq -r .suspend <<< "$cj")
   have=$(oc get cronjob "$name" -n "$NS" -o jsonpath='{.spec.suspend}' 2>/dev/null || echo missing)
@@ -68,8 +72,20 @@ while read -r cj; do
     oc patch -n "$NS" "cronjob/$name" --type=merge -p "{\"spec\":{\"suspend\":$want}}"
 done < <(jq -c '.[]' "$CAP/cronjobs.json")
 
+# 2b. ConfigMaps that select a database (db-consumers.md), data exactly as captured. Older captures have none.
+if in_scope configmaps && [ -f "$CAP/configmaps.json" ]; then
+  while read -r cm; do
+    name=$(jq -r .name <<< "$cm"); want=$(jq -S .data <<< "$cm")
+    have=$(oc get configmap "$name" -n "$NS" -o json 2>/dev/null | jq -S '.data // {}' || echo missing)
+    if [ "$want" != "$have" ]; then
+      jq -n --argjson d "$want" '{data: $d}' > "$TMP/cm-$name.json"
+      do_cmd "ConfigMap/$name data differs" oc patch -n "$NS" "configmap/$name" --type=merge --patch-file="$TMP/cm-$name.json"
+    fi
+  done < <(jq -c '.[]' "$CAP/configmaps.json")
+fi
+
 # 3. Routes: whole objects, exactly as captured.
-while read -r route; do
+in_scope routes && while read -r route; do
   name=$(jq -r .metadata.name <<< "$route")
   live=$(oc get route "$name" -n "$NS" -o json 2>/dev/null | jq -c 'del(.status, .metadata.resourceVersion, .metadata.uid,
     .metadata.creationTimestamp, .metadata.generation, .metadata.managedFields)' || true)
@@ -87,7 +103,7 @@ done < <(jq -c '.[]' "$CAP/routes.json")
 
 # 4. Legacy maintenance mode. Needs legacy php running; otherwise it is reported, not guessed.
 wantfile=$(jq -r .climaintenance_file "$CAP/maintenance.json"); wantset=$(jq -r .maintenance_enabled "$CAP/maintenance.json")
-if [ "$wantfile" != "null" ]; then
+if in_scope maintenance && [ "$wantfile" != "null" ]; then
   if [ "$(oc get deploy php -n "$NS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" = "" ]; then
     echo "SKIP  maintenance: legacy php not ready (captured file=$wantfile setting=$wantset)"; changes=$((changes + 1))
   else

@@ -1137,8 +1137,14 @@ which happens as its own approved step.
   3. Record progress so a retry cannot run against the wrong database.
   4. Drop the account afterwards.
 - `db-consumers.md`: the reviewed inventory of everything that selects legacy's database. That is php and cron (via
-  `DB_NAME`), the database backup (`moodle-db-backup-storage-config`), and anything else the pre-phase re-run of Phase 0
-  finds.
+  `DB_NAME`), **the pod-health-monitor (also `DB_NAME`, found 2026-11-25)**, the database backup
+  (`moodle-db-backup-storage-config`), and anything else the pre-phase re-run of Phase 0 finds.
+- *Written 2026-11-25 in `ops/replatform/`:* `bailout-dump-check.sh`, `bailout-import.sh`, `frozen-checksums.sh` (all
+  proven locally, §8.4 step 6); `which-db.php` (fed on stdin, so nothing is written to legacy's code volume; proven in
+  legacy dev and on the local stack); `bailout-switch.sh`, `bailout-unswitch.sh`, `legacy-fence-infra.sh`,
+  `verify-legacy-fenced.sh`, `legacy-cleanup.sh` (dry run by default; the read-only parts run against legacy dev; the
+  changes themselves are exercised in Pass B); `db-consumers.md` and `unique-conflicts.md`. "Reaches legacy" is decided
+  from each Service's selector against legacy web and php pods: in dev that is `php`, `php-backup` and `web`.
 - `bailout-switch.sh` / `bailout-unswitch.sh` (D3, DR01, DR02, DR05):
   1. `GRANT ALL PRIVILEGES ON moodle_bailout.* TO 'moodle'@'%'`, then prove a php pod can connect to it as `moodle` before
      anything switches.
@@ -1244,7 +1250,12 @@ created with `--internal`, so it has no route to the internet.
       pending upgrade. Create another record to prove IDs continue correctly.
 6. **Import safety (RB13):** run `bailout-dump-check.sh` against a dump made with `--databases`; it must reject it. Load a
    good dump through the restricted account into a local `moodle_bailout`. Prove that a planted `INSERT INTO moodle.…` is
-   denied and that a copy of the "frozen" `moodle` is unchanged.
+   denied and that a copy of the "frozen" `moodle` is unchanged. **Passed locally, 2026-11-25,** against the prod copy:
+   the checker accepted the real return dump (511 tables, 16 s) and rejected the `--databases` dump (`CREATE DATABASE`,
+   `USE`) and five planted statements, each for its own reason; `bailout-import.sh` loaded it in 92 s and dropped its
+   account; an account with the same privileges could write `moodle_bailout` but was denied `INSERT INTO moodle.config`
+   and `DROP DATABASE moodle`; `--abort` removed only `moodle_bailout`; `frozen-checksums.sh` matched on all 514 tables
+   after every step.
 7. **GitHub (V503):** confirm the image has no `local_githubsync`, and that a copy restored from a pre-E7 dump has none of
    its tables or settings after the pipeline. On a copy that **has** HTTPS egress (the dev profile, not `--internal`), its
    former URLs return 404, and no connection to GitHub is attempted.

@@ -13,6 +13,7 @@
 #                     (env holds DB_NAME and MANUAL_MODE; Secret references are kept as references, never values)
 #   routes.json       every Route, whole objects (spec, annotations, TLS)
 #   cronjobs.json     every CronJob: name, suspend
+#   configmaps.json   the ConfigMaps in db-consumers.md that select a database (default: legacy's backup target)
 #   maintenance.json  legacy: CLI maintenance file present?, maintenance_enabled (via legacy's own php CLI)
 #   helm.txt          the new stack's release status and values, if a release is named
 #   SHA256SUMS
@@ -36,6 +37,10 @@ oc get deploy,sts -n "$NS" -o json | jq '[.items[] | {kind, name: .metadata.name
 
 oc get routes -n "$NS" -o json | jq '[.items[] | del(.status, .metadata.resourceVersion, .metadata.uid,
   .metadata.creationTimestamp, .metadata.generation, .metadata.managedFields)]' > "$OUT/routes.json"
+
+CAPTURE_CONFIGMAPS=${CAPTURE_CONFIGMAPS:-moodle-db-backup-storage-config}
+for cm in $CAPTURE_CONFIGMAPS; do oc get configmap "$cm" -n "$NS" -o json 2>/dev/null || true; done \
+  | jq -s '[.[] | {name: .metadata.name, data: (.data // {})}]' > "$OUT/configmaps.json"
 
 oc get cronjobs -n "$NS" -o json | jq '[.items[] | {name: .metadata.name, suspend: (.spec.suspend // false),
   labels: (.metadata.labels // {})}]' > "$OUT/cronjobs.json"
