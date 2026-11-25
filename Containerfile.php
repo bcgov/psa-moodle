@@ -53,11 +53,13 @@ RUN find ${MOODLE_SRC} -name '.git' -type d -prune -exec rm -rf {} + \
  && find ${MOODLE_SRC} -name '.DS_Store' -delete
 
 # =============================================================================
-# Stage 2 — runtime: php-fpm 8.3.36 with Moodle's required extensions.
+# Stage 2 — runtime: php-fpm 8.3.36 with Moodle's required extensions, no Moodle code.
+# Build it alone with `--target runtime`: the replatform's exact-code images (ops/replatform/Containerfile.php-exact)
+# start from it and add the code copied from legacy (runbook C10), so both kinds of image share one runtime.
 # =============================================================================
 # 2026-10-21 security release fixes CVE-2026-109618 and CVE-2026-109619.
 # Keep in sync with Containerfile.cron; Moodle 4.5 supports PHP through 8.3.
-FROM docker.io/library/php:8.3.36-fpm-bookworm
+FROM docker.io/library/php:8.3.36-fpm-bookworm AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -102,15 +104,20 @@ COPY config/php/php.ini      $PHP_INI_DIR/conf.d/zz-moodle.ini
 # fails to start with exit 78.
 COPY config/php/php-fpm.conf /usr/local/etc/php-fpm.d/www.conf
 
-# Application code from the src stage.
-COPY --from=src --chown=www-data:0 /opt/moodle/html /var/www/html
-
 # moodledata, localcachedir mount points (mode 02775 so root-group writes work
 # under OpenShift's arbitrary-UID SCC).
 RUN mkdir -p /var/www/moodledata /var/local-cache \
  && chown -R www-data:0 /var/www/moodledata /var/local-cache \
- && chmod -R g+rwX /var/www/moodledata /var/local-cache \
- && chmod -R g+rwX /var/www/html
+ && chmod -R g+rwX /var/www/moodledata /var/local-cache
+
+# =============================================================================
+# Stage 3 — the image: the runtime plus the code from the src stage.
+# =============================================================================
+FROM runtime
+
+# Application code from the src stage.
+COPY --from=src --chown=www-data:0 /opt/moodle/html /var/www/html
+RUN chmod -R g+rwX /var/www/html
 
 WORKDIR /var/www/html
 USER www-data

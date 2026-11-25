@@ -985,8 +985,15 @@ which happens as its own approved step.
   2026-11-25). The dev build is used only for Pass B (J3, V805). Every add-on, including `report_allbackups` and the
   theme, is at the commit that matches what legacy runs. **`local_githubsync` is excluded**, because E7 removes it from
   legacy (G1).
+- **How (built 2026-11-25 for prod):** `Containerfile.php` now has a code-free `runtime` stage (`--target runtime`);
+  `ops/replatform/Containerfile.php-exact` adds the context made by `prepare-exact-context.sh` from the read-only code
+  copy; web and cron are built from it with `PHP_IMAGE`, as usual. The context drops `local/githubsync` (G1) and the
+  top-level entries that aren't upstream Moodle at legacy's commit: `config/`, `example.versions.env`, `info/` (a PHP
+  configuration checker, publicly reachable on prod and test but self-disabled), `last_migration_timestamp`,
+  `migrate-courses/`, `openshift/` and `vendor/` (Composer development files, loaded only for developer-mode error pages).
 - **Prove it.** Compare checksums of the image's code tree with the legacy pod's `/var/www/html`, excluding `config.php` and
-  the custom webroot files, which are not carried over (Q8). Every add-on's `version.php` must **equal** `config_plugins` in
+  the custom webroot files, which are not carried over (Q8). **Prod, 2026-11-25:** all 30,197 files in the image are
+  byte-identical to the pod's; the 165 legacy files not in the image are exactly the exclusions above. Every add-on's `version.php` must **equal** `config_plugins` in
   the source dump.
 - **System packages:** `unoconv` and Ghostscript (§5.11); nginx 1.30.7 or later (§5.1).
 - **C14, conversion runtime:** `ops/replatform/Containerfile.convert`. It has PHP 8.3 with `mysqli` **and**
@@ -1044,6 +1051,9 @@ which happens as its own approved step.
   - `lang/` is copied;
   - `secret/` is copied, so values encrypted with Moodle's key stay readable;
   - quarantine folders, `muc/`, caches, sessions, temp, lock and `trashdir` are not copied.
+- `reverse-precheck.sh <postgres>` (RB08): finds values distinct in Postgres that would collide in a unique index under
+  legacy's `utf8mb4_unicode_ci` (case- and accent-insensitive), using an ICU primary-strength collation. It reports index
+  names and counts, never values. An early warning only: the reverse import stays the final check.
 - `check-filedir`: every referenced `contenthash` exists in the target with the right size, and its SHA-1 equals its name.
   The known missing files (prod 3, test 9) are listed in `expected-differences.md`. After a restore from a nightly set, any
   gap other than the manifest's recorded source gaps is a failure.
@@ -1180,7 +1190,12 @@ Use the **final post-fix prod dump**, which includes the trigger, and the test d
 created with `--internal`, so it has no route to the internet.
 1. Restore and run the schema check. Expect **only** the §5.2 items. Drop the extra tables and the trigger in the copy.
 2. Run `tool_dbtransfer` into Postgres (C14 runtime) and time it. Run `compare-content.sh`: only the expected differences.
-3. Boot psa-moodle locally against the Postgres copy with the referenced moodledata. Check:
+3. Boot psa-moodle locally against the Postgres copy with the referenced moodledata. **First boot, prod, 2026-11-25** (exact
+   image, no files yet): `upgrade.php --is-pending` reports no upgrade needed; `check_database_schema.php` says "Database
+   structure is ok" (the §5.2 drift is gone on Postgres); the login page renders with the `bcgovpsa` theme and the "BC
+   Government Login" button; the site starts in maintenance, because the freeze's `maintenance_enabled = 'cli mode'` is
+   carried over and only `maintenance.php --disable` clears it. Status checks: cron not running (no cron locally), one
+   queued ad hoc task, and `registration_cron_task` at the maximum fail delay, which it already is in prod. Check:
    - `admin/index.php` shows **no pending upgrade**;
    - the environment check passes;
    - the site starts in maintenance;
@@ -1528,6 +1543,10 @@ business days for test, 5 for prod.
   - the temporary quota still holds (D1).
 - The recovery package is current (S8); `state-capture.sh prereturn` has run (S14); `frozen-checksums.sql` has recorded
   the frozen `moodle`'s per-table checksums (V504).
+- **`reverse-precheck.sh` reports no collisions** (RB08). It also runs **daily through the bail-out window**, so a
+  collision is resolved per `unique-conflicts.md` before anyone needs a return, not during one. Proven locally on
+  2026-11-25: two synthetic tags differing only by an accent made the reverse conversion stop with `Duplicate entry ...
+  for key 'tag_tagnam_uix'`, and the precheck found exactly that collision beforehand.
 
 ### 14.1 Stop the new site's writers, keep its database (RB03, RB05, DR04)
 1. Optionally, `maintenance.php --enable` on the new site, if it responds.

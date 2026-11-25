@@ -1,0 +1,20 @@
+# Exact-code php image for the replatform (runbook C10, S7).
+#
+# Same runtime as Containerfile.php (build that file with `--target runtime`), plus the Moodle code copied read-only
+# from the environment's legacy pods, so the new stack runs exactly the code legacy runs. The build context is a
+# prepared folder made by ops/replatform/prepare-exact-context.sh:
+#   html/      the legacy tree minus local_githubsync (G1) and the non-Moodle top-level files (Q8)
+#   config.php psa-moodle's config/moodle/config.openshift.php
+# web and cron images are then built from this image with PHP_IMAGE=<this image>, as usual.
+ARG RUNTIME_IMAGE=localhost/psa-moodle-runtime:dev
+FROM ${RUNTIME_IMAGE}
+
+USER 0
+COPY --chown=www-data:0 html/ /var/www/html/
+COPY --chown=www-data:0 config.php /var/www/html/config.php
+RUN chmod -R g+rwX /var/www/html
+
+WORKDIR /var/www/html
+USER www-data
+EXPOSE 9000
+CMD ["php-fpm", "-F"]
