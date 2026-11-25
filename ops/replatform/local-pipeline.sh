@@ -141,7 +141,7 @@ normalise_nulls() {
   : > "$out"
   nullable=$(maria -e "SELECT CONCAT(table_name, '.', column_name) FROM information_schema.columns
                        WHERE table_schema='moodle' AND is_nullable='YES'")
-  while IFS=$'\t' read -r t c type def; do
+  while IFS=$'\t' read -r t c _type def; do
     grep -qxF "$t.$c" <<< "$nullable" || continue
     n=$(maria -e "SELECT COUNT(*) FROM \`$t\` WHERE \`$c\` IS NULL" < /dev/null)
     [ "$n" -gt 0 ] || continue
@@ -227,7 +227,8 @@ reverse_counts() {
 }
 
 dump() {
-  local out="$WORK/$ENV_NAME-postgres-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  local out
+  out="$WORK/$ENV_NAME-postgres-$(date -u +%Y%m%dT%H%M%SZ).dump"
   podman exec "$PG" pg_dump -U moodle -d moodle -Fc > "$out"
   shasum -a 256 "$out" >> "$WORK/SHA256SUMS.txt"
   log "pg_dump -Fc -> $out ($(du -h "$out" | cut -f1))"

@@ -23,18 +23,18 @@ check() { # description, ok(0/1), detail
 for c in web php cron; do
   desired=$(oc get deploy -n "$NS" -l "$SEL,app.kubernetes.io/component=$c" -o jsonpath='{range .items[*]}{.spec.replicas}{"\n"}{end}')
   pods=$(oc get pods -n "$NS" -l "$SEL,app.kubernetes.io/component=$c" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-  check "$c desired 0, no pods" "$([ -n "$desired" ] && [ -z "$(echo "$desired" | grep -v '^0$')" ] && [ "$pods" -eq 0 ]; echo $?)" \
+  check "$c desired 0, no pods" "$(if [ -n "$desired" ] && [ -z "$(echo "$desired" | grep -v '^0$')" ] && [ "$pods" -eq 0 ]; then echo 0; else echo 1; fi)" \
     "desired=[$(echo $desired)] pods=$pods"
 done
 
 hpas=$(oc get hpa -n "$NS" -l "$SEL" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-check "no HPA" "$([ "$hpas" -eq 0 ]; echo $?)" "$hpas HPA(s)"
+check "no HPA" "$(if [ "$hpas" -eq 0 ]; then echo 0; else echo 1; fi)" "$hpas HPA(s)"
 
 active=$(oc get jobs -n "$NS" -l "$SEL" -o jsonpath='{range .items[?(@.status.active)]}{.metadata.name}{" "}{end}')
-check "no active Job" "$([ -z "$active" ]; echo $?)" "$active"
+check "no active Job" "$(if [ -z "$active" ]; then echo 0; else echo 1; fi)" "$active"
 
 unsuspended=$(oc get cronjobs -n "$NS" -l "$SEL" -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.spec.suspend}{"\n"}{end}' | grep -v '=true$' || true)
-check "every CronJob suspended" "$([ -z "$unsuspended" ]; echo $?)" "$(echo $unsuspended)"
+check "every CronJob suspended" "$(if [ -z "$unsuspended" ]; then echo 0; else echo 1; fi)" "$(echo $unsuspended)"
 
 services=$(oc get svc -n "$NS" -l "$SEL" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
 routed=""
@@ -43,7 +43,7 @@ while IFS=$'\t' read -r route backends; do
     if grep -qx "$b" <<< "$services"; then routed="$routed $route->$b"; fi
   done
 done < <(oc get routes -n "$NS" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.to.name}{" "}{range .spec.alternateBackends[*]}{.name}{" "}{end}{"\n"}{end}')
-check "no Route reaches the release" "$([ -z "$routed" ]; echo $?)" "$routed"
+check "no Route reaches the release" "$(if [ -z "$routed" ]; then echo 0; else echo 1; fi)" "$routed"
 
 echo "Not checked here: a leftover backup climaintenance.html needs a pod that mounts moodledata; writer-unfence checks it."
 [ "$fail" -eq 0 ] && echo "FENCED" || { echo "NOT FENCED"; exit 1; }

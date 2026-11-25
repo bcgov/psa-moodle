@@ -18,7 +18,8 @@ CAP="$HOME/Moodle/private-backups/state-$NS-prereturn"
 [ -d "$CAP" ] || { echo "no prereturn capture" >&2; exit 1; }
 
 echo "== 1. env and backup target from the prereturn capture"
-RESTORE_SCOPE=env,configmaps "$HERE/state-restore.sh" "$NS" prereturn $([ "$APPLY" -eq 1 ] && echo --apply) || true
+args=(); [ "$APPLY" -eq 1 ] && args+=(--apply)
+RESTORE_SCOPE=env,configmaps "$HERE/state-restore.sh" "$NS" prereturn "${args[@]}" || true
 if [ "$APPLY" -eq 0 ]; then echo "dry run: nothing changed"; exit 0; fi
 oc rollout restart -n "$NS" deploy/moodle-db-backup-storage
 oc rollout status -n "$NS" deploy/php --timeout=600s

@@ -51,7 +51,7 @@ lock_q() {
   local line; R=""
   # The ';' matters: psql runs a backslash command at once but holds an unterminated query, so the marker would
   # otherwise come back before the result.
-  printf '%s;\n\\echo __RP_END__\n' "$1" >&"${PSQL[1]}" 2>/dev/null || return 1
+  printf '%s;\n\\echo __RP_END__\n' "$1" >&"${PSQL[1]}" || return 1
   while IFS= read -r -t 60 line <&"${PSQL[0]}"; do
     [ "$line" = "__RP_END__" ] && return 0
     R="$line"

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by the return scripts: how to reach the MariaDB that holds legacy's frozen `moodle`.
 #
 #   TARGET=galera:<namespace>/<pod>   legacy Galera; admin credentials stay inside the pod (Bitnami password file)

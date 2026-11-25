@@ -52,7 +52,7 @@ jobs:
         # shellcheck is preinstalled on ubuntu-latest.
         run: |
           shopt -s globstar nullglob
-          shellcheck --severity=warning scripts/**/*.sh
+          shellcheck --severity=warning scripts/**/*.sh ops/**/*.sh
 
   yaml:
     runs-on: ubuntu-latest
