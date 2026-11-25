@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
         with:
           version: v3.14.3
       - name: helm lint (default values)
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: shellcheck
         # shellcheck is preinstalled on ubuntu-latest.
         run: |
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: One PHP version across the Containerfiles
         run: |
           versions=$(grep -hoE 'library/php:[0-9]+\.[0-9]+\.[0-9]+' Containerfile* ops/replatform/Containerfile* | sort -u)
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: yamllint
         # yamllint is preinstalled on ubuntu-latest.
         # chart/psa-moodle/templates/ holds Helm Go-templates ({{- ... }}), which

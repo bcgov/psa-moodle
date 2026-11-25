@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Exact code tree (refuses on any mismatch)
         run: ops/replatform/build-exact-tree.sh build "${{ inputs.environment }}" ctx/html

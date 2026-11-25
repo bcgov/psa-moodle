@@ -52,7 +52,7 @@ jobs:
       can_deploy: ${{ steps.r.outputs.can_deploy }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -105,17 +105,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Install helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: v3.14.3
 
       - name: oc login
-        uses: redhat-actions/oc-login@v1
+        uses: redhat-actions/oc-login@v2
         with:
           openshift_server_url: ${{ env.OPENSHIFT_SERVER }}
           openshift_token: ${{ needs.resolve.outputs.environment == 'test' && secrets.OPENSHIFT_TOKEN_TEST || secrets.OPENSHIFT_TOKEN_DEV }}
