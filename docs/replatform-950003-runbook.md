@@ -1684,6 +1684,9 @@ created with `--internal`, so it has no route to the internet.
     (`replication-cert-copy`, `pgbackrest`, `pgbackrest-config`) take the namespace's default 50m / 256 MiB each because
     the chart doesn't size them, so one Postgres instance pod requests 401m / 1,344 MiB and the repo host 100m / 512 MiB:
     count them in prod's quota (D1). Collation (RB08): `en_US.utf-8`, ctype `en_US.utf-8`, UTF8, PostgreSQL 15.15.
+    **Egress, live (C15):** from the php pod, the internet (`www.google.com:443`), the SSO server
+    (`loginproxy.gov.bc.ca:443`), the SMTP relay, legacy's Galera (`mariadb-galera:3306`) and the Kubernetes API
+    (`142.34.194.119:6443`) all time out; Postgres, Valkey and DNS work.
     Earlier attempts each found a defect, fixed before the next: `oc` missing on the runner; pasted variables breaking
     the render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning`; the empty reviewer
     list. Still to fix with the next images: the `X-PSA-Stack` header (C12) isn't set, and the responses expose
