@@ -200,7 +200,9 @@ spec:
   receivers:
     - name: email
       emailConfigs:
-        - to: {{ .Values.monitoring.alerts.to | quote }}
+        # An empty recipient is rejected by OpenShift's admission webhook (Pass A, 2026-11-26): fall back to the ops alert
+        # address (deploy-950003 sets it from ALERT_TO), and fail the render if neither is set.
+        - to: {{ required "monitoring.alerts.to or backup.alerts.to is required (the alert email address)" (.Values.monitoring.alerts.to | default .Values.backup.alerts.to) | quote }}
           from: {{ .Values.monitoring.alerts.from | quote }}
           smarthost: {{ .Values.monitoring.alerts.smtpHost }}:{{ .Values.monitoring.alerts.smtpPort }}
           requireTLS: false

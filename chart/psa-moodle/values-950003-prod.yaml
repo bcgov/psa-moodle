@@ -4,7 +4,8 @@
 # Image home for 950003 (owner decision 2026-11-26): Artifactory project m950-learning, which legacy already pushes to
 # and whose pull secret is in all three namespaces. Everything by digest (C13): php, web and cron from build-exact, ops
 # too; deploy-950003 supplies all four. Docker Hub images come through the same project, pinned by digest (the image
-# scan covers them; Dependabot can't see images named in values).
+# scan covers them; Dependabot can't see images named in values). Public images come through Artifactory's Docker Hub cache,
+# docker-remote; m950-learning is a local repository and doesn't proxy (Pass A, 2026-11-26).
 image:
   repository: m950-learning/psa-moodle
   pullSecret: artifactory-m950-learning
@@ -49,7 +50,7 @@ moodledata:
 
 valkey:
   image:
-    repository: artifacts.developer.gov.bc.ca/m950-learning/valkey/valkey
+    repository: artifacts.developer.gov.bc.ca/docker-remote/valkey/valkey   # Artifactory's Docker Hub cache (m950-learning is local only)
     tag: 7.2.16-alpine
     digest: sha256:3056ae42eccb4cf4ef5e5a403a68f6dbd8038774456086c152961bb79a467c6d
   persistence:

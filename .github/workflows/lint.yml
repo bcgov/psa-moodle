@@ -51,15 +51,15 @@ jobs:
             echo "== $e precommit"; scripts/chart-egress-matrix.sh --expect precommit -- "${base[@]}" --set moodle.outbound=off --set networkPolicy.externalEgress=off
             echo "== $e commit"; scripts/chart-egress-matrix.sh --expect commit -- "${base[@]}" --set moodle.outbound=on --set networkPolicy.externalEgress=on
           done
-      - name: 950003 images all from m950-learning, by digest (C13)
+      - name: 950003 images all through Artifactory (m950-learning, or its Docker Hub cache docker-remote), by digest (C13)
         run: |
           d=sha256:$(printf '0%.0s' $(seq 64))
           for e in dev test prod; do
             bad=$(helm template t chart/psa-moodle -f "chart/psa-moodle/values-950003-$e.yaml" --set backup.alerts.to=ci@example.invalid \
                     --set php.image.digest="$d" --set web.image.digest="$d" --set cron.image.digest="$d" --set image.ops.digest="$d" \
-                  | grep -E '^\s+image: ' | grep -vE 'artifacts\.developer\.gov\.bc\.ca/m950-learning/.*@sha256:[0-9a-f]{64}' || true)
-            [ -z "$bad" ] || { echo "::error::$e renders images not from m950-learning by digest:"; echo "$bad"; exit 1; }
-            echo "$e: every image from m950-learning by digest"
+                  | grep -E '^\s+image: ' | grep -vE 'artifacts\.developer\.gov\.bc\.ca/(m950-learning|docker-remote)/.*@sha256:[0-9a-f]{64}' || true)
+            [ -z "$bad" ] || { echo "::error::$e renders images not through Artifactory by digest:"; echo "$bad"; exit 1; }
+            echo "$e: every image through Artifactory, by digest"
           done
 
   scripts:
