@@ -86,6 +86,10 @@ cron:
   image:
     name: cron
   intervalSeconds: 60         # deployment mode: seconds between cron.php ticks
+  # cron.php --keep-alive (seconds). Moodle 4.5 defaults to 180: each cron.php stays connected polling for ad hoc
+  # tasks for 3 minutes, so the nightly backup's drain waited up to that long (Pass A: 162 s). 0 = one pass per tick,
+  # then the loop's own sleep; the drain then waits only for the task running when the page goes up.
+  keepAliveSeconds: 0
   schedule: "*/1 * * * *"     # cronjob mode only (Kyverno forces hourly on Silver)
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 30
@@ -233,8 +237,9 @@ networkPolicy:
     externalHttpsCidr: "0.0.0.0/0"
     # External SMTP allow CIDR (apps.smtp.gov.bc.ca). Same rationale.
     externalSmtpCidr: "0.0.0.0/0"
-    # Ops jobs' Kubernetes API egress (C15). 6443 is expected after OVN's Service DNAT; 443 is kept until Pass A shows
-    # which is used. Then drop the other and narrow the CIDR to the API servers.
+    # Ops jobs' Kubernetes API egress (C15). 6443 is expected after OVN's Service DNAT; 443 is kept until a dev run with
+    # 6443 alone proves it. The CIDR should be the control-plane nodes (not the cluster's external API address);
+    # values-950003-dev.yaml tests a narrowed pair.
     kubeApiCidr: "0.0.0.0/0"
     kubeApiPorts: [6443, 443]
   # The application's internet egress (C15): "on" or "off". off = php and cron reach nothing outside the cluster.

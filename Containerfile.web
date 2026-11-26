@@ -24,9 +24,11 @@ RUN nginx -v 2>&1 | grep -qx 'nginx version: nginx/1.30.8' \
  && apk add --no-cache curl
 
 # The site config is a template: nginx's entrypoint (20-envsubst-on-templates.sh) writes conf.d/default.conf from it at
-# start, substituting only PHP_UPSTREAM (C1). The base image's own default.conf is removed so the output can be written.
+# start, substituting only PHP_UPSTREAM (C1) and PSA_RELEASE (C12's X-PSA-Release; the chart sets the release name). The
+# base image's own default.conf is removed so the output can be written.
 ENV PHP_UPSTREAM=php:9000 \
-    NGINX_ENVSUBST_FILTER=^PHP_UPSTREAM$
+    PSA_RELEASE=local \
+    NGINX_ENVSUBST_FILTER=^(PHP_UPSTREAM|PSA_RELEASE)$
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY config/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=src /var/www/html /var/www/html

@@ -50,6 +50,9 @@ spec:
             # C1: nginx's FastCGI upstream is this release's own php Service, never a shared name.
             - name: PHP_UPSTREAM
               value: {{ printf "%s-php:%v" (include "psa-moodle.fullname" .) .Values.php.service.port | quote }}
+            # C12: nginx names the release in X-PSA-Release on every response (X-PSA-Stack names the stack).
+            - name: PSA_RELEASE
+              value: {{ .Release.Name | quote }}
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
           livenessProbe:

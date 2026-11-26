@@ -65,7 +65,7 @@ spec:
                   fi
                 fi
                 echo "[cron-loop] tick start $(date -u +%FT%TZ)"
-                php /var/www/html/admin/cli/cron.php 2>&1
+                php /var/www/html/admin/cli/cron.php --keep-alive="${CRON_KEEPALIVE}" 2>&1
                 rc=$?
                 echo "[cron-loop] tick end rc=${rc} $(date -u +%FT%TZ)"
                 date -u +%s > "${HEARTBEAT}"
@@ -74,6 +74,8 @@ spec:
           env:
             - name: CRON_INTERVAL
               value: {{ .Values.cron.intervalSeconds | quote }}
+            - name: CRON_KEEPALIVE
+              value: {{ .Values.cron.keepAliveSeconds | default 0 | quote }}
             {{- include "psa-moodle.appEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.cron.resources | nindent 12 }}

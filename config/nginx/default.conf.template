@@ -24,6 +24,15 @@ server {
     real_ip_recursive on;
     access_log /dev/stdout main_xff;
 
+    # C12: every response names the stack that answered, so cutover and rollback checks can tell psa-moodle from
+    # legacy (`always`: error responses too). ${PSA_RELEASE} is filled in at start like PHP_UPSTREAM.
+    add_header X-PSA-Stack "psa-moodle" always;
+    add_header X-PSA-Release "${PSA_RELEASE}" always;
+    # No version numbers in responses: `Server: nginx` only, and PHP's X-Powered-By is dropped (expose_php is off
+    # as well; this covers an image whose php.ini lacks it).
+    server_tokens off;
+    fastcgi_hide_header X-Powered-By;
+
     root   /var/www/html;
     index  index.php index.html;
 
@@ -65,9 +74,10 @@ server {
         fastcgi_busy_buffers_size 64k;
     }
 
+    # default_type rather than add_header: a location with its own add_header loses the server-level headers above.
     location = /health {
         access_log off;
+        default_type text/plain;
         return 200 "ok\n";
-        add_header Content-Type text/plain;
     }
 }

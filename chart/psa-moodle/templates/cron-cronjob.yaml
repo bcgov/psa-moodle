@@ -38,7 +38,7 @@ spec:
             - name: cron
               image: {{ include "psa-moodle.image.cron" . }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              command: ["php", "/var/www/html/admin/cli/cron.php"]
+              command: ["php", "/var/www/html/admin/cli/cron.php", "--keep-alive={{ .Values.cron.keepAliveSeconds | default 0 }}"]
               env:
                 {{- include "psa-moodle.appEnv" . | nindent 16 }}
               resources:

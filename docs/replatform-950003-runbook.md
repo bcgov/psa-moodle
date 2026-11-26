@@ -401,13 +401,33 @@ fourteen findings and the backup-alert correction on 2026-11-26. Every fix was t
   and `OPENSHIFT_TOKEN` (the deployer's token, piped); variables `NAMESPACE`, `ALERT_TO`, `ROUTE_ALLOWED_SOURCES` (the
   owner's current address; the BC Gov VPN range to be added once read from a VPN connection), `PUBLIC_WWWROOT` and
   `FENCE_SERVICE=maintenance-message`. `REVIEWER_ADMINS` is unset for Pass A (an empty install).
-- **Kubernetes API address for the ops rule:** legacy's logs show pods dialling the API at `142.34.194.119:6443`; Pass A
-  confirms it, then `kubeApiCidr` narrows to that address and the unused port is dropped.
+- **Kubernetes API address for the ops rule: corrected 2026-11-26.** `142.34.194.119` is `api.silver.devops.gov.bc.ca`,
+  the cluster's *external* API address (legacy's pods dial it because they log in with that URL). The ops jobs use
+  their service account through the `kubernetes` Service (`172.30.0.1:443`), which OVN translates to the
+  control-plane nodes on 6443 before policy applies, so narrowing to `142.34.194.119` would have cut them off. The
+  control-plane addresses can't be read with namespace access (`endpoints` in `default` and `nodes` are forbidden); the
+  cluster's nodes (`142.34.151.144`–`155`) and `api-int` (`142.34.151.251`) are in `142.34.151.0/24`. So dev's values
+  now try `142.34.151.0/24` on 6443 only, to be proved by one deploy and one integrity-check run; test and prod keep
+  the chart default (any address, 6443 and 443) until it passes. If it fails, 6443 alone is tried with any address,
+  and Platform Services are asked for the control-plane addresses.
 
 ### Still open in Pass A (2026-11-26)
-- The remaining Pass A exercises (§9), each by the owner's approval: the moodledata backup run by hand as the restricted
-  role (its API port, the real pgBackRest gate, alerts), the integrity check, a restore drill with an explicit target
-  (C7), pod-kill and PDBs, alerts fired on purpose, and the writer fence and full shutdown with their reverses.
+- *Every Pass A exercise in §9 has run and passed* (install, egress, both backups, integrity check, paired restore
+  drill, pod kills, alerts, writer fence, full shutdown and their reverses). Four follow-ups remain before the review
+  that clears Pass B:
+  1. **The ops jobs' API rule** (above): dev's narrowed values, proved by one deploy and one integrity-check run.
+  2. **Next images (C12 and version headers), fixed in code 2026-11-26:** nginx sends `X-PSA-Stack: psa-moodle` and
+     `X-PSA-Release: <release>` on every response, errors included; `server_tokens off` (`Server: nginx`); PHP's
+     `X-Powered-By` is dropped by nginx and `expose_php = Off` in our php.ini (`php.ini-production` leaves it on).
+     Tested locally against the pinned nginx and PHP images: the headers on 200, 404 and 502 responses, no versions.
+     Live after `build-exact` and a redeploy.
+  3. **The backup's 162-second drain, fixed in the chart 2026-11-26:** cron runs `cron.php --keep-alive=0`
+     (`cron.keepAliveSeconds`). Moodle 4.5 otherwise keeps each `cron.php` connected for 3 minutes polling for ad hoc
+     tasks (`\core\cron::DEFAULT_MAIN_PROCESS_KEEPALIVE`), and the drain waits for it. The loop already sleeps
+     `intervalSeconds` (60) between passes and skips passes while the backup page is up, so ad hoc tasks now wait up
+     to a minute instead of a second. Proved by the next moodledata backup run by hand after the redeploy.
+  4. **Valkey in prod** is a single replica with no PDB (the pod-kill test: 20 s of HTTP 500s). Owner's decision,
+     carried to the next review.
 - **Test and prod** get the same setup later, each by its own approval (their environments, deployer accounts and
   tokens). Owner setup items from §0.8 not covered above: GitHub environments with required reviewers, their secrets and variables
   (now including `PUBLIC_WWWROOT`); and in this repository the secrets `ARTIFACTORY_USERNAME` and
@@ -419,6 +439,8 @@ fourteen findings and the backup-alert correction on 2026-11-26. Every fix was t
   in use (legacy dev's own nightly backups) and stay.
 - **Pass A proves on the cluster:** which API port the ops jobs use (then narrow the rule), the gate against the real
   pgBackRest (including a failover), the restricted role's drain with a live request, and the egress matrix live.
+  *Proved, except the narrowed API rule (follow-up 1 above) and the gate across a failover: dev runs one Postgres
+  instance in Pass A, so the failover between two sets stays in Pass B's backup matrix.*
 
 ## 1. Summary
 
@@ -1705,8 +1727,8 @@ created with `--internal`, so it has no route to the internet.
     `20261126-045042F_20261126-050006I` (the hourly incremental), WAL archived through the restore point's segment
     (V1002); the ops pod reached the Kubernetes API through the new egress rule; 4 files, published. **To follow up:** a
     162-second pause is longer than J1's "about a minute", most likely Moodle 4.5's cron keep-alive holding `cron.php` for
-    up to 3 minutes; within the 5-minute drain limit, but worth shortening (stop the keep-alive while the backup page is
-    up).
+    up to 3 minutes; within the 5-minute drain limit, but worth shortening (*fixed in the chart 2026-11-26: cron runs
+    with `--keep-alive=0`; §0.9 "Still open in Pass A"*).
     **Integrity check, run by hand (owner-approved): passed:** repo host found by name; full, daily and hourly backups
     current; `pgbackrest verify` clean; required tables present.
     **Paired restore drill (S12, C7, V1012; owner-approved): PASSED** on `rp-drill-2`: Crunchy restored a new cluster to
@@ -1742,7 +1764,8 @@ created with `--internal`, so it has no route to the internet.
     Earlier attempts each found a defect, fixed before the next: `oc` missing on the runner; pasted variables breaking
     the render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning`; the empty reviewer
     list. Still to fix with the next images: the `X-PSA-Stack` header (C12) isn't set, and the responses expose
-    `server: nginx/1.30.8` and `x-powered-by: PHP/8.3.37`.
+    `server: nginx/1.30.8` and `x-powered-by: PHP/8.3.37` (*fixed in code 2026-11-26, live after the next build; §0.9
+    "Still open in Pass A"*).
   - **The empty install needs `REVIEWER_ADMINS=2`** in the `950003-dev` environment. With outbound off the guard makes
     only the reviewer list site admins, and Moodle's installer creates its admin as user 2 and then calls `get_admin()`
     (`lib/installlib.php` line 521). The fourth attempt, 2026-11-26, failed exactly there with the list empty, after
