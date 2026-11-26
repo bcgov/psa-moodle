@@ -24,7 +24,7 @@ concurrency:
 
 env:
   REGISTRY: artifacts.developer.gov.bc.ca
-  REGISTRY_REPO: ${{ vars.EXACT_REGISTRY_REPO || 'a58ce1-tools/psa-moodle' }}
+  REGISTRY_REPO: ${{ vars.EXACT_REGISTRY_REPO || 'm950-learning/psa-moodle' }}   # 950003's image home (2026-11-26)
 
 jobs:
   build:
@@ -42,7 +42,7 @@ jobs:
         run: |
           v=$(jq -r --arg e "${{ inputs.environment }}" '.environments[$e].version' ops/replatform/exact-code.json)
           tag="exact-${{ inputs.environment }}-${v}-$(git rev-parse --short=7 HEAD)"
-          for c in php web cron; do echo "$c=$REGISTRY/$REGISTRY_REPO/$c:$tag" >> "$GITHUB_OUTPUT"; done
+          for c in php web cron ops; do echo "$c=$REGISTRY/$REGISTRY_REPO/$c:$tag" >> "$GITHUB_OUTPUT"; done
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Build (linux/amd64)
@@ -56,6 +56,8 @@ jobs:
             -f Containerfile.web -t "${{ steps.names.outputs.web }}" .
           podman build --platform linux/amd64 --build-arg PHP_IMAGE="${{ steps.names.outputs.php }}" \
             -f Containerfile.cron -t "${{ steps.names.outputs.cron }}" .
+          # The ops image (backup jobs) carries no Moodle code, but deploys by digest too (C13), from the same run.
+          podman build --platform linux/amd64 -f Containerfile.ops -t "${{ steps.names.outputs.ops }}" .
 
       - name: Check the code inside the image
         run: |
@@ -85,6 +87,7 @@ jobs:
           podman push --digestfile php.digest "${{ steps.names.outputs.php }}"
           podman push --digestfile web.digest "${{ steps.names.outputs.web }}"
           podman push --digestfile cron.digest "${{ steps.names.outputs.cron }}"
+          podman push --digestfile ops.digest "${{ steps.names.outputs.ops }}"
 
       - name: Summary
         run: |
@@ -93,7 +96,7 @@ jobs:
             echo
             echo "Code tree verified against legacy: \`$(jq -r --arg e "${{ inputs.environment }}" '.environments[$e].tree_sha256' ops/replatform/exact-code.json)\`"
             echo
-            for c in php web cron; do
+            for c in php web cron ops; do
               if [ -f "$c.digest" ]; then echo "- $c: digest \`$(cat "$c.digest")\`"; else echo "- $c: built, not pushed"; fi
             done
           } >> "$GITHUB_STEP_SUMMARY"

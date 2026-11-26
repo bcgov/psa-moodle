@@ -1,6 +1,20 @@
 # 950003-test: psa-moodle beside legacy moodle-nginx during the replatform (runbook C6). Apply on top of values.yaml.
 # Sizes: runbook §5.4. Never commit reviewer IP addresses or alert recipients: pass them at deploy time, e.g.
 #   --set-json 'route.allowedSources=["<owner's address>/32"]' --set backup.alerts.to=<owner's email>
+# Image home for 950003 (owner decision 2026-11-26): Artifactory project m950-learning, which legacy already pushes to
+# and whose pull secret is in all three namespaces. Everything by digest (C13): php, web and cron from build-exact, ops
+# too; deploy-950003 supplies all four. Docker Hub images come through the same project, pinned by digest (the image
+# scan covers them; Dependabot can't see images named in values).
+image:
+  repository: m950-learning/psa-moodle
+  pullSecret: artifactory-m950-learning
+  ops: { name: ops, digest: "" }
+monitoring:
+  phpFpmExporter:
+    # Off: hipages/php-fpm_exporter 2.2.0 is the newest release, unmaintained, and carries 5 CRITICAL and 68 HIGH fixable
+    # vulnerabilities (Trivy, 2026-11-26). Turn on only with a maintained exporter, pinned by digest.
+    enabled: false
+
 install:
   enabled: false             # a migrated site: no installer, nokeygeneration (C2, V602)
 
@@ -34,6 +48,10 @@ moodledata:
   size: 3Gi
 
 valkey:
+  image:
+    repository: artifacts.developer.gov.bc.ca/m950-learning/valkey/valkey
+    tag: 7.2.16-alpine
+    digest: sha256:3056ae42eccb4cf4ef5e5a403a68f6dbd8038774456086c152961bb79a467c6d
   persistence:
     size: 1Gi
 

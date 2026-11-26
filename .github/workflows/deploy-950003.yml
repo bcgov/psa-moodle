@@ -60,6 +60,9 @@ on:
       cron_digest:
         description: cron image digest (sha256:...) from build-exact
         required: true
+      ops_digest:
+        description: ops image digest (sha256:...) from build-exact (backup jobs)
+        required: true
 
 permissions:
   contents: read
@@ -85,7 +88,7 @@ jobs:
         run: |
           case "$NS" in 950003-*) ;; *) echo "::error::environment variable NAMESPACE must be a 950003 namespace"; exit 1 ;; esac
           [ "$NS" = "${{ inputs.environment }}" ] || { echo "::error::NAMESPACE $NS does not match ${{ inputs.environment }}"; exit 1; }
-          for d in "${{ inputs.php_digest }}" "${{ inputs.web_digest }}" "${{ inputs.cron_digest }}"; do
+          for d in "${{ inputs.php_digest }}" "${{ inputs.web_digest }}" "${{ inputs.cron_digest }}" "${{ inputs.ops_digest }}"; do
             [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::not an image digest: $d"; exit 1; }
           done
           [ -n "${{ vars.ALERT_TO }}" ] || { echo "::error::environment variable ALERT_TO is not set"; exit 1; }
@@ -128,7 +131,8 @@ jobs:
             printf '%s\n' -f "chart/psa-moodle/values-950003-$ENV_SHORT.yaml"
             [ "${{ inputs.overlay }}" = none ] || printf '%s\n' -f "chart/psa-moodle/values-950003-${{ inputs.overlay }}.yaml"
             printf '%s\n' --set "php.image.digest=${{ inputs.php_digest }}" --set "web.image.digest=${{ inputs.web_digest }}"
-            printf '%s\n' --set "cron.image.digest=${{ inputs.cron_digest }}" --set "backup.alerts.to=${{ vars.ALERT_TO }}"
+            printf '%s\n' --set "cron.image.digest=${{ inputs.cron_digest }}" --set "image.ops.digest=${{ inputs.ops_digest }}"
+            printf '%s\n' --set "backup.alerts.to=${{ vars.ALERT_TO }}"
             printf '%s\n' --set-json "route.allowedSources=${{ vars.ROUTE_ALLOWED_SOURCES || '[]' }}"
             [ -n "${{ vars.REVIEWER_ADMINS }}" ] && printf '%s\n' --set "moodle.reviewerAdmins=${{ vars.REVIEWER_ADMINS }}"
             printf '%s\n' "${prof[@]}"
@@ -211,5 +215,6 @@ jobs:
             echo "- php \`${{ inputs.php_digest }}\`"
             echo "- web \`${{ inputs.web_digest }}\`"
             echo "- cron \`${{ inputs.cron_digest }}\`"
+            echo "- ops \`${{ inputs.ops_digest }}\`"
             echo "- result: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

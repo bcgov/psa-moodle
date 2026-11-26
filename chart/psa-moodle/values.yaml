@@ -255,6 +255,7 @@ podSecurityContext:
 monitoring:
   enabled: true
   phpFpmExporter:
+    enabled: true                  # 950003: false (the image carries CRITICAL CVEs; see _helpers.tpl)
     image: docker.io/hipages/php-fpm_exporter:2.2.0
   alerts:
     smtpHost: apps.smtp.gov.bc.ca

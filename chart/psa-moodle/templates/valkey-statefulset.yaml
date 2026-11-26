@@ -32,7 +32,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: valkey
-          image: "{{ .Values.valkey.image.repository }}:{{ .Values.valkey.image.tag }}"
+          image: "{{ .Values.valkey.image.repository }}{{ with .Values.valkey.image.digest }}@{{ . }}{{ else }}:{{ .Values.valkey.image.tag }}{{ end }}"
           imagePullPolicy: {{ .Values.valkey.image.pullPolicy }}
           command:
             - valkey-server

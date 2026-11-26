@@ -5,7 +5,8 @@ Creates: NetworkPolicy (allow scraping), PodMonitor (Crunchy), ServiceMonitor
 (PHP-FPM exporter), PrometheusRule (alerts), AlertmanagerConfig (email routing).
 */}}
 
-# --- NetworkPolicies: allow Prometheus scraping from openshift-user-workload-monitoring ---
+# --- NetworkPolicies: allow Prometheus scraping from openshift-user-workload-monitoring {{- if include "psa-moodle.phpFpmExporter" . }}
+---
 # C4: each policy selects only this release's pods. Never `podSelector: {}`: in a namespace shared with legacy
 # moodle-nginx that would open these ports on legacy's pods too, because NetworkPolicies are additive.
 apiVersion: networking.k8s.io/v1
@@ -28,6 +29,7 @@ spec:
       ports:
         - protocol: TCP
           port: 9253   # php-fpm-exporter
+{{- end }}
 ---
 # Crunchy's pods don't carry the Helm release labels; select them by the operator's own cluster label.
 apiVersion: networking.k8s.io/v1
@@ -68,6 +70,7 @@ spec:
       interval: 30s
       scrapeTimeout: 10s
 
+{{- if include "psa-moodle.phpFpmExporter" . }}
 ---
 # --- ServiceMonitor: PHP-FPM exporter ---
 apiVersion: monitoring.coreos.com/v1
@@ -84,6 +87,7 @@ spec:
     - port: metrics
       interval: 30s
       scrapeTimeout: 10s
+{{- end }}
 
 ---
 # --- PrometheusRule: alerts for critical operational conditions ---

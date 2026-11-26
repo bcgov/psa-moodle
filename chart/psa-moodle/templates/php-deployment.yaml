@@ -77,7 +77,7 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: false
-        {{- if .Values.monitoring.enabled }}
+        {{- if include "psa-moodle.phpFpmExporter" . }}
         - name: php-fpm-exporter
           image: {{ .Values.monitoring.phpFpmExporter.image }}
           imagePullPolicy: IfNotPresent

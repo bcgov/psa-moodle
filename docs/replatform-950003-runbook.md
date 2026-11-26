@@ -370,11 +370,32 @@ fourteen findings and the backup-alert correction on 2026-11-26. Every fix was t
 - **E7 on a reused scratch dataroot reported "Unknown plugin" and the pipeline carried on;** it now clears the scratch
   caches first and stops unless every `local_githubsync` row is gone.
 
+### Image home and third-party images (2026-11-26)
+- **Image home: Artifactory project `m950-learning`** (recommended and set as the default; owner may change it with the
+  repository variable `EXACT_REGISTRY_REPO`). Legacy already pushes there (`moodle-nginx`'s workflows, as
+  `artifacts.developer.gov.bc.ca/m950-learning/<image>`), and its pull secret `artifactory-m950-learning` exists in all
+  three namespaces (checked read-only). v1.0's 950003 values had silently inherited the PoC's `a58ce1-tools/psa-moodle`
+  and a pull secret, `artifactory-pull`, that exists in none of them: Pass A would have failed to pull anything.
+- **Everything by digest** (C13): `build-exact` now also builds and pushes the ops image (the backup jobs), and
+  `deploy-950003` takes its digest with the other three. Valkey comes through the same Artifactory project, pinned to
+  `7.2.16-alpine` by digest, and the daily image scan covers it (Dependabot can't see images named in Helm values). CI's
+  lint fails if a 950003 render has any image not from `m950-learning` by digest.
+- **The php-fpm metrics sidecar is off in 950003** (`monitoring.phpFpmExporter.enabled: false`): its only image,
+  `hipages/php-fpm_exporter:2.2.0`, is the newest release of an unmaintained project and carries 5 CRITICAL and 68 HIGH
+  fixable vulnerabilities. PHP-FPM metrics are not used by any alert or runbook check. Its Service port, scrape
+  configuration and policy port go with it. Turn it back on only with a maintained exporter pinned by digest.
+- **First pull through `m950-learning` is checked in Pass A** (Valkey's path through the project's Docker Hub proxy
+  mirrors legacy's own `m950-learning/bitnamilegacy/...` images).
+
 ### Still open before Pass A
 - **Owner setup** (unchanged from §0.8): GitHub environments with required reviewers, their secrets and variables
-  (now including `PUBLIC_WWWROOT`), and the 950003 image registry.
-- **Owner decision:** delete legacy dev's two unmounted 2021 PVCs, `db-backup-data` (5 GiB) and `db-backup-verification`
-  (1 GiB). The other three backup PVCs are in use (legacy dev's own nightly backups) and stay.
+  (now including `PUBLIC_WWWROOT`); and in this repository the secrets `ARTIFACTORY_USERNAME` and
+  `ARTIFACTORY_PASSWORD` for an Artifactory account that can push to `m950-learning` (`moodle-nginx`'s
+  `ARTIFACTORY_USER` and `ARTIFACTORY_PASSWORD` are one). Then run `build-exact` for prod (Pass A uses the prod build).
+- *Done 2026-11-26 (owner-approved):* legacy dev's two unmounted PVCs were inspected with a temporary read-only pod
+  (`db-backup-data`: 12 old dev dumps from 2023-11, the last two empty; `db-backup-verification`: empty since 2022) and
+  deleted. Dev's storage requests went from 68,958 to 62,814 MiB: **34.66 GiB free**. The other three backup PVCs are
+  in use (legacy dev's own nightly backups) and stay.
 - **Pass A proves on the cluster:** which API port the ops jobs use (then narrow the rule), the gate against the real
   pgBackRest (including a failover), the restricted role's drain with a live request, and the egress matrix live.
 
@@ -1608,7 +1629,8 @@ created with `--internal`, so it has no route to the internet.
     - an egress NetworkPolicy that selects only the fixture's pods and allows DNS and legacy dev's Galera pods on port
       3306, nothing else. Before loading, confirm no other policy grants those pods egress;
     - storage: see the budget below; one fixture at a time, removed after its pass.
-- **Storage budget for dev (V1007).** Free 28.66 GiB (2026-11-25), 34.66 GiB if the two unmounted 2021 PVCs are deleted.
+- **Storage budget for dev (V1007).** Free **34.66 GiB** since 2026-11-26 (two unmounted PVCs deleted with approval; 28.66
+  before).
   PVCs can't shrink, so between passes the release is uninstalled **and its PVCs deleted**, including the backup PVC,
   which `helm.sh/resource-policy: keep` otherwise preserves. Sizes come from `deploy-950003`'s `overlay` input:
 
@@ -1620,7 +1642,8 @@ created with `--internal`, so it has no route to the internet.
   | Pass C paired-restore drill | 24 GiB | after the fixture is removed: restored Postgres 4 + restored moodledata 5 | 33 GiB |
 
   The fixture's database lives in legacy dev's existing Galera volumes (check their free space first), so it adds no
-  PVC. With 28.66 GiB free the drill doesn't fit; with 34.66 it does, with 1.66 GiB to spare. Measure actual use in
+  PVC. With 34.66 GiB free the drill fits, with 1.66 GiB to spare; the backup PVC's class (`netapp-file-backup`) has its own
+  48 GiB cap, 5 GiB used. Measure actual use in
   Pass A and correct the overlays before Pass B.
 - **Pass A: coexistence with an empty install.**
   - `check-collisions.sh` first. Then `deploy-950003` with profile `empty-install`, `site_host=temporary`, overlay
@@ -2103,7 +2126,9 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-26 | Approved and done in legacy 950003-dev: restore the missing `redis-proxy` Service (identical to test's) and restart the proxy; then the recovery-package restart proof (`restart-proof.sh --apply`), which passed | Owner |
 | 2026-11-26 | v1.0 written: Phase 1's implementation reported for the eighth review (§0.8) | Owner |
 | 2026-11-26 | Eighth review (Codex): do not execute v1.0; correct isolation, bootstrap and capacity, then a narrow empty dev Pass A. Accept V1001–V1014 and the backup-alert correction into v1.1 | Owner |
-| 2026-11-26 | Legacy dev's backup PVCs: keep the three in use (its own nightly backups); deleting the two unmounted 2021 PVCs (6 GiB) is proposed, pending approval | Owner |
+| 2026-11-26 | Legacy dev's backup PVCs: keep the three in use (its own nightly backups); the two unmounted ones (`db-backup-data`, `db-backup-verification`) inspected read-only and deleted, 6 GiB freed | Owner |
+| 2026-11-26 | 950003 image home: Artifactory `m950-learning/psa-moodle` (legacy's project; its pull secret is in all three namespaces); every 950003 image by digest, ops included; Valkey 7.2.16 through the same project | Owner |
+| 2026-11-26 | php-fpm metrics sidecar off in 950003: its only image is unmaintained and carries CRITICAL CVEs | Owner |
 
 **Phase 0 findings (2026-11-18):** see [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md).
 The facts that change the plan are folded into §5 and §6.

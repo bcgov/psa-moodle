@@ -247,3 +247,11 @@ The outbound guard's effective value (C5): off while fenced, else moodle.outboun
 {{- define "psa-moodle.outbound" -}}
 {{- if include "psa-moodle.fenced" . }}off{{ else }}{{ .Values.moodle.outbound | default "off" }}{{ end -}}
 {{- end -}}
+
+{{/*
+"true" when the php-fpm metrics sidecar runs: monitoring on and monitoring.phpFpmExporter.enabled not false. 950003
+turns it off: the only exporter image (hipages 2.2.0, unmaintained) carries CRITICAL CVEs (image scan, 2026-11-26).
+*/}}
+{{- define "psa-moodle.phpFpmExporter" -}}
+{{- if and .Values.monitoring.enabled (ne (toString .Values.monitoring.phpFpmExporter.enabled) "false") }}true{{ end -}}
+{{- end -}}

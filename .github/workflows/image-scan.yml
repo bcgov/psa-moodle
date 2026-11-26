@@ -16,6 +16,7 @@ on:
       - "ops/replatform/Containerfile*"
       - "config/php/**"
       - "config/nginx/**"
+      - "chart/psa-moodle/values-950003-*.yaml"
       - ".github/workflows/image-scan.yml"
   workflow_dispatch: {}
 
@@ -56,6 +57,14 @@ jobs:
               --output /dev/null || { echo "::error::$c image has fixable CRITICAL vulnerabilities"; fail=1; }
             rm -f "scan/$c.tar"
           done
+          # Third-party image the 950003 values pin by digest (Dependabot can't see images named in Helm values).
+          valkey="docker.io/valkey/valkey@$(yq -r '.valkey.image.digest' chart/psa-moodle/values-950003-prod.yaml)"
+          podman run --rm -v "$PWD/scan:/scan" -v trivy-cache:/root/.cache "$TRIVY_IMAGE" image --quiet \
+            --severity CRITICAL,HIGH --ignore-unfixed --format table --output /scan/valkey.txt "$valkey"
+          podman run --rm -v "$PWD/scan:/scan" -v trivy-cache:/root/.cache "$TRIVY_IMAGE" image --quiet \
+            --severity CRITICAL,HIGH --ignore-unfixed --format sarif --output /scan/valkey.sarif "$valkey"
+          podman run --rm -v trivy-cache:/root/.cache "$TRIVY_IMAGE" image --quiet --severity CRITICAL --ignore-unfixed \
+            --exit-code 1 --format table --output /dev/null "$valkey" || { echo "::error::valkey ($valkey) has fixable CRITICAL vulnerabilities"; fail=1; }
           echo "fail=$fail" >> "$GITHUB_OUTPUT"
 
       - name: Summary
@@ -65,7 +74,7 @@ jobs:
             echo "## image-scan $(date -u +%F)"
             echo
             echo "CRITICAL and HIGH vulnerabilities with a fix available (Trivy, \`$TRIVY_IMAGE\`):"
-            for c in php web cron ops; do
+            for c in php web cron ops valkey; do
               echo; echo "### $c"; echo '```'
               if [ -s "scan/$c.txt" ]; then head -c 60000 "scan/$c.txt"; else echo "none"; fi
               echo '```'
@@ -96,6 +105,13 @@ jobs:
         with:
           sarif_file: scan/ops.sarif
           category: image-scan-ops
+
+      - name: Upload valkey results to code scanning
+        if: always() && hashFiles('scan/valkey.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scan/valkey.sarif
+          category: image-scan-valkey
 
       - name: Fail on fixable CRITICAL vulnerabilities
         if: steps.scan.outputs.fail == '1'
