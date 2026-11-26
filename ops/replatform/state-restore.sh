@@ -46,8 +46,10 @@ do_cmd() { # description, command...
   echo "      $(printf '%q ' "${@:2}")"
   if [ "$APPLY" -eq 1 ]; then "${@:2}"; fi
 }
-is_release() { # labels json -> true if the object belongs to the new stack's release
-  [ -n "$REL" ] && [ "$(jq -r --arg r "$REL" '.["app.kubernetes.io/instance"] == $r' <<< "$1")" = "true" ]
+is_release() { # labels json -> true if the object belongs to the new stack's release, or to its Crunchy cluster (whose
+  # own objects, such as the backup CronJobs, carry the operator's label instead; Pass B, 2026-11-26)
+  [ -n "$REL" ] && [ "$(jq -r --arg r "$REL" '(.["app.kubernetes.io/instance"] == $r)
+    or (.["postgres-operator.crunchydata.com/cluster"] == ($r + "-pg"))' <<< "${1:-{\}}")" = "true" ]
 }
 
 # 1. Container env (workloads) and, below, ConfigMaps.
@@ -146,6 +148,7 @@ done < <(jq -c '.[]' "$CAP/cronjobs.json")
 # 6. Routes, LAST: whole objects, exactly as captured.
 in_scope routes && while read -r route; do
   name=$(jq -r .metadata.name <<< "$route")
+  is_release "$(jq -c '.metadata.labels // {}' <<< "$route")" && continue   # the release's own Route is Helm's
   live=$(oc get route "$name" -n "$NS" -o json 2>/dev/null | jq -c 'del(.status, .metadata.resourceVersion, .metadata.uid,
     .metadata.creationTimestamp, .metadata.generation, .metadata.managedFields)' || true)
   # Ignore kubectl's last-applied-configuration: `oc replace` rewrites it whenever it exists, so a restored Route could
