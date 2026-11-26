@@ -1,6 +1,8 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v1.1, 2026-11-26.** Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done. v1.1 answers
+> **Status: DRAFT v1.2, 2026-11-26.** **Pass A is complete in 950003-dev** and every exercise passed (§0.10); the
+> owner has decided to move sessions to Postgres and make Valkey Moodle's cache, proposed here and not yet built
+> (§0.10). Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done. v1.1 answered
 > the eighth review ([replatform-950003-v10-review.md](replatform-950003-v10-review.md), V1001–V1014, §0.9): every
 > finding is fixed in code and tested locally; the parts only a cluster can prove are listed for Pass A and Pass B.
 > **Phase 2 has started in 950003-dev: Pass A's empty install is running beside legacy** (2026-11-26, §9). Every
@@ -22,6 +24,8 @@
 > v1.0 reported Phase 1's implementation (§0.8).
 > **v1.1 answers the eighth review** (V1001–V1014 and a backup-alert correction, §0.9), with five more defects found
 > while fixing them.
+> **v1.2 reports Pass A** (§0.10): its results, the defects it found, the follow-ups done, the owner's session and cache
+> decision, the performance bar and how it will be tested.
 > It supersedes the "request a new project set" direction in `README.md` (Current direction) and
 > `docs/quota-request.md`. The plan is to replatform **inside** the existing 950003 namespaces on Silver, using their existing
 > quota plus one temporary increase for prod, then release ad4087 (Gold) and retire a58ce1.
@@ -43,6 +47,9 @@ The service owner is cautious and wants a plan that cannot strand them.
   prod. The frozen legacy database is never written, so a failed return cannot strand us.
 
 **Please try to break this promise.**
+
+**If you reviewed v1.1,** start at §0.10: Pass A's results and what it found, then the owner's decision on sessions
+and caches (proposed, not built) and the performance plan. The questions for this round are at the end of §0.10.
 
 **If you reviewed v1.0,** check first that each of V1001–V1014 is resolved by the code and tests listed in §0.9, and
 that the five further defects found while fixing them (§0.9) are really fixed. Then re-check the disposition: is a
@@ -447,6 +454,116 @@ fourteen findings and the backup-alert correction on 2026-11-26. Every fix was t
   pgBackRest (including a failover), the restricted role's drain with a live request, and the egress matrix live.
   *Proved, the narrowed API rule included (follow-up 1 above), except the gate across a failover: dev runs one Postgres
   instance in Pass A, so the failover between two sets stays in Pass B's backup matrix.*
+
+## 0.10 Changes in v1.2: Pass A's results and the next decisions (2026-11-26)
+
+### Pass A: complete, every exercise passed
+Every exercise in §9's Pass A list ran in 950003-dev against the empty install, each by the owner's approval; the
+detailed record, with timings and run numbers, is under §9 "Pass A". In short:
+- **Install** (fifth attempt, `deploy-950003` run 45757308604) with the outbound guard on, beside legacy dev, which
+  matched its `prepassa` capture after every step. Cost against the baseline: +951m CPU, +3,072 MiB memory, +9 GiB
+  storage in requests; Crunchy's sidecars take the namespace's 50m / 256 MiB default each.
+- **Egress, live:** from php, the internet, SSO, SMTP, Galera and the Kubernetes API time out; Postgres, Valkey and DNS
+  work. The ops jobs reach the API and SMTP through their own rules.
+- **Backups:** pgBackRest full and hourly incrementals; the moodledata backup as the restricted role, with the real
+  pgBackRest gate; the integrity check; **a paired restore drill** whose canary, stored before the backup, decrypted
+  with the restored key.
+- **Pod kills:** every component recovered by itself (Valkey: about 20 s of HTTP 500 for every request).
+- **Alerts** reached the owner by email; **writer fence** (58 s), **full shutdown and start** (86 s), with quota measured
+  in each state: normal 2,331m / 6,760 MiB, fenced 1,981m / 5,928 MiB, shut down 1,480m / 4,072 MiB.
+
+**Defects Pass A found, each fixed and re-run:** `oc` missing on the runner; values pasted into scripts breaking the
+render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning` (now `docker-remote` by
+digest); the empty install needing `REVIEWER_ADMINS=2`; Crunchy's first backup's start-up race (expected, retries);
+`restore-paired.sh`'s empty-gap list, its rejected `--target-action`, and its check racing Crunchy's password reset;
+`full-shutdown.sh` counting finished backup pods as running.
+
+**Follow-ups done after the exercises (§0.9 "Still open in Pass A"):**
+- **The ops jobs' API rule** is narrowed to `142.34.151.0/24` on 6443 only, and proved in dev. v1.1 would have narrowed
+  it to `142.34.194.119`, the cluster's *external* API address, which in-cluster clients never use: the ops jobs would
+  have lost the API.
+- **Response headers:** `X-PSA-Stack` and `X-PSA-Release` on every response (C12); no nginx or PHP version numbers.
+- **The backup's pause:** cron's 3-minute keep-alive is off; the drain fell from 162 s to 10 s by hand and 9 s in the
+  first scheduled night.
+- **Deliberately failed Jobs are deleted after alert tests:** the two left in place set off repeated `KubeJobFailed`
+  warnings overnight.
+
+**Not proved by Pass A:** the gate across a Postgres failover (dev runs one instance; Pass B's backup matrix), and
+anything that needs real data or load (below).
+
+### Owner decision: sessions move to Postgres; Valkey becomes Moodle's cache (proposed, not built)
+Facts behind it, found 2026-11-26:
+- **Our Valkey holds sessions only,** and a Valkey restart means errors for every request (Pass A: about 20 s). Its
+  configuration adds two quieter risks: `allkeys-lru` under a 256 MB cap evicts the most idle sessions when full (users
+  logged out, no alert), and `appendonly no` with `save 60 1000` loses recent sessions if Valkey is killed rather than
+  stopped (out of memory, a node failure).
+- **Legacy also keeps sessions in Redis,** on 5 `redis-node` pods with Sentinel behind 5 `redis-proxy` pods. Moodle 4.5's
+  session handler takes one host or a Redis Cluster list, not Sentinel, so something must follow the master; legacy's
+  proxy does, and its Service was missing in legacy dev until §8.3 restored it.
+- **Moodle's caches are not in Valkey at all.** The live site's `muc/config.php` has only the default `file`,
+  `session` and `static` stores, so the application cache is files on the moodledata volume (NetApp file storage).
+  §8.2's line "a migrated site gets its own Valkey cache configuration" was never implemented. Legacy's application
+  cache is in Redis.
+- **No connection pooler** sits in front of Postgres, so Moodle's database session handler (Postgres advisory locks)
+  works as it is.
+
+**Proposed design:**
+- **Sessions:** `\core\session\database`. Postgres is already the highly available component (3 instances in prod),
+  and a Postgres failover interrupts the site anyway, so sessions there add no new way to fail.
+- **Valkey: Moodle's application cache only** (`cachestore_redis`, set by an idempotent script at deploy), with no
+  persistence and no volume. Losing a cache should cost speed, not availability; **to verify in dev** with a Valkey
+  pod kill under traffic, including requests in flight when it dies.
+- **Single Valkey replica:** accepted, if that test shows a restart costs a cold cache and no errors.
+
+### Performance: the owner's bar, and how it will be tested
+**The bar.** Legacy is fast for a Moodle site, about 200 ms for a whole page load, and losing much of that is a deal
+breaker. Legacy was load-tested (BlazeMeter) past **1,500 concurrent users** without losing speed; that is the target.
+The real peak is about 50 concurrent users. 5,000 is no longer a goal, because the move to Moodle Workplace is
+expected within the year.
+
+**Baseline, measured 2026-11-26** with headless Chromium from the owner's network (Navigation Timing, median of 5
+loads; anonymous pages only; 22 page loads on legacy prod, with the owner's approval):
+
+| Page | Legacy prod, warm cache | psa-moodle dev, warm cache | Legacy prod, cold | psa-moodle dev, cold |
+|---|---|---|---|---|
+| Login page, full load | 115 ms | 121 ms | 516 ms | 638 ms |
+| Login page, first byte | 77 ms | 87 ms | 137 ms | 134 ms |
+| Front page, full load | 154 ms | 153 ms | 671 ms | 682 ms |
+
+Not yet a like-for-like comparison:
+- psa-moodle dev is an empty site on one replica, with the stock theme and file caches.
+- Legacy prod's own hostname gets HTTP/2 (its Route has its own certificate), where dev's temporary Route gets
+  HTTP/1.1. That probably explains most of the cold-load gap; at cutover psa-moodle takes over prod's Route and keeps
+  its certificate.
+- Anonymous pages say little about logged-in pages, which is where the cache store matters.
+
+**Plan:**
+1. **A page probe** (a test account logs in, then times the dashboard, a course, a forum, a quiz and a file
+   download): legacy dev and psa-moodle dev on the same data in Pass B, before and after the session and cache change.
+2. **A load test in dev only** (never test or prod), so psa-moodle's release scales to prod's replica counts for it.
+   - **Tool:** k6 (open source) as a time-limited Job, so it counts against dev's separate time-bound quota (4 cores).
+   - **Scenario:** a ramp to 1,500 virtual users with think time, held for 20–30 minutes; login, dashboard, course,
+     forum post and quiz.
+   - **Run** against legacy dev and psa-moodle dev, through their Services, with the same data and the same scenario.
+   - **Quota:** dev's long-running quota (4 cores, 2.3 used) can't hold prod's sizing beside legacy dev, so legacy dev
+     is scaled down for psa-moodle's run, or a temporary increase is requested.
+3. **Proposed pass criteria:**
+   - no errors at 1,500 virtual users;
+   - the 95th-percentile page time within 20% of legacy dev's on the same scenario;
+   - single-user logged-in pages within 20% of legacy's.
+   If psa-moodle misses, it is tuned and re-tested before Pass C; the cutover doesn't proceed on a miss.
+4. **The original BlazeMeter plans** aren't in `moodle-nginx`; only a cleanup script for a plan that posts forum replies
+   is. They would make "1,500 users" exactly comparable but aren't required, since both stacks run the same k6 scenario.
+
+### Asked of this review
+1. Do Pass A's results support starting **Pass B**, the dress rehearsal on legacy dev's data (§9)?
+2. **Sessions in Postgres and Valkey as the cache:**
+   - Is it the right call?
+   - What could go wrong: session locking under load, WAL and backup volume, the nightly drain, sessions inside a
+     paired restore, the cutover?
+   - Is a single cache-only Valkey acceptable?
+3. **The performance plan:** is it enough to protect the owner's speed bar, and are the pass criteria right?
+4. Anything in Pass A's evidence (§9) that doesn't support what this section claims.
 
 ## 1. Summary
 
@@ -1287,7 +1404,8 @@ which happens as its own approved step.
     ELM completion observer never checks `enabled`, so the dead `completion_apiurl` is what stops it.
 - **Admins on a guarded copy** must not mark real courses complete. Acceptance uses **synthetic** records (§15, RB11).
 - Decide each legacy setting in §5.11 and record the decision in §16.
-- A migrated site gets its own Valkey cache configuration; `muc/config.php` is never copied.
+- A migrated site gets its own Valkey cache configuration; `muc/config.php` is never copied. *(Not implemented as of
+  v1.2: the live site uses Moodle's default file store; §0.10 proposes Valkey as the application cache.)*
 - **Encryption key (V602):** when `install.enabled=false` (a migrated site, whose key is copied from legacy `secret/`),
   `config.openshift.php` sets `$CFG->nokeygeneration = true`. A missing or unrestored key then fails loudly
   (`encryption_nokey`) instead of Moodle generating a new key and leaving encrypted values unreadable.
@@ -1752,7 +1870,8 @@ created with `--internal`, so it has no route to the internet.
     from dev's single replicas. Test runs php 2, web 2, Postgres 2; prod php 3, web 3, Postgres 3, so those kills there
     should be invisible or a short failover. **Valkey is one replica in every environment and has no disruption
     budget:** in prod, any Valkey restart (node drain, eviction, out of memory) means about 20 s of errors for every user,
-    where legacy runs Redis with Sentinel on 5 nodes. **Open question for the owner and the next review:** accept that,
+    where legacy runs Redis with Sentinel on 5 nodes. *(Owner's decision 2026-11-26: sessions move to Postgres and Valkey
+    becomes the cache; §0.10.)* **Open question for the owner and the next review:** accept that,
     or run Valkey with a replica and Sentinel before prod. The php and web budgets (`maxUnavailable: 1`) allow evicting
     dev's only pod, which is right for dev and harmless at 2 or more replicas.
     **Alerts fired on purpose (owner-approved):** a backup run with a zero drain limit paused, reopened at once and
