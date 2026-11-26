@@ -8,7 +8,7 @@
 #   1. refuses unless the namespace ends in -dev (CLAUDE.md: no restore drills in test or prod)
 #   2. checks the repository's database system identifier equals the manifest's (pgbackrest info on the repo host)
 #   3. a new PostgresCluster <restore name>, restored from the release's repository to the manifest's restore point:
-#      --type=name --target=<set> --set=<base backup> --target-timeline=<timeline> --target-action=promote
+#      --type=name --target=<set> --set=<base backup> --target-timeline=<timeline> (Crunchy adds --target-action)
 #   4. a new, empty moodledata PVC, filled by a Job running restore-set-files.sh from the backup PVC (read-only)
 #   5. a Job from the php image against the restored database and files (V1012): the missing referenced files are
 #      EXACTLY the set's recorded source gaps (source-gaps.txt beside the manifest), by hash; SHA-1s correct; no
@@ -61,7 +61,7 @@ spec:
         - --target=$set_id
         - --set=$base
         - --target-timeline=$tl
-        - --target-action=promote
+        # No --target-action: Crunchy sets it itself and rejects the option (InvalidDataSource; Pass A, 2026-11-26).
   instances:
     - name: restore
       replicas: 1
