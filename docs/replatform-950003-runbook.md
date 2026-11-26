@@ -6,8 +6,8 @@
 > **Phase 2 has started in 950003-dev: Pass A's empty install is running beside legacy** (2026-11-26, §9). Every
 > cluster change so far was owner-approved, and all of it is in **950003-dev**: legacy's missing `redis-proxy` Service
 > restored and the recovery-package restart proof (§8.3); two unmounted 2021 PVCs deleted; the `psa-moodle-deployer`
-> account; and the Pass A release, installed on the fifth attempt after four failed ones were each undone, with legacy
-> dev matching its capture every time (§9). **No step of this runbook has changed test or prod.**
+> account; and the Pass A release, installed on the fifth attempt: two earlier attempts stopped before touching the
+> cluster, and two partial installs were undone, with legacy dev matching its capture each time (§9). **No step of this runbook has changed test or prod.**
 > v0.2 answered the first review ([replatform-950003-review.md](replatform-950003-review.md), R1–R12, §0).
 > v0.3 added facts from the 2026-11-18 prod mojibake window (§0.1).
 > v0.4 answered the second review ([replatform-950003-rollback-review.md](replatform-950003-rollback-review.md),
