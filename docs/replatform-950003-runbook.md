@@ -641,10 +641,10 @@ real data, pages without the cache will be slower. Dev measures that.
 Prompted by a question from the business side, and checked with the reviewer: the rehearsals use real test and prod
 data, not anonymized copies, because Pass C must prove that the real records, files and encryption survive. The
 safeguard is that a copy is no wider than its source. New rule **S16** (§3): an access check before loading
-(`ops/replatform/access-diff.sh`), privacy confirmation from PSA (or the owner's recorded acceptance while it's pending),
-and deletion verified and dated when each pass ends, including legacy dev Galera's binary logs. The first check, on
-2026-11-26, found one user and one group with access to dev but not to prod; the owner is confirming them. The technical
-reviews are not a privacy approval.
+(`ops/replatform/access-diff.sh`) and deletion when each pass ends. The first check, on 2026-11-26, found one user and
+one group with access to dev but not to prod; the owner is confirming them. **Cleared 2026-11-26:** the owner's director
+is satisfied that the existing protections are sufficient and rated the data handling **low risk** to proceed (per the
+owner). That clearance, not the technical reviews, is the approval.
 
 ### Still to prove in dev (each by the owner's approval)
 - **Pass B starts with this configuration:** a fresh install with the new images (the Pass A release uninstalled).
@@ -843,23 +843,24 @@ reviews are not a privacy approval.
   - Dev Pass B proves that the router honours the annotation.
 - **S16. A copy of real data is no wider than its source, and is deleted when its pass ends** (owner decision,
   2026-11-26). The data is not anonymized: Pass C exists to prove the real records, files and encryption survive
-  conversion and recovery. The privacy question is who can reach a copy and how it is stored and removed. The technical
-  reviews of this runbook are **not** a privacy approval. Before a pass loads test or prod data into dev:
+  conversion and recovery. The privacy question is who can reach a copy and how it is stored and removed. **The owner's
+  director cleared the existing protections as low risk on 2026-11-26** (per the owner); the technical reviews of this
+  runbook are not that approval. Before a pass loads test or prod data into dev:
   - **Access:** `ops/replatform/access-diff.sh <source> 950003-dev` reports nobody with access to dev who lacks access
     to the source. Each person or group it names is confirmed by the owner, or their dev access is paused for the pass.
     The script prints names to the operator's terminal only; the window log records the counts and the decision.
-  - **Privacy confirmation:** PSA's privacy contact has confirmed the rehearsal copy in dev and the copies on the owner's
-    encrypted laptop (Q16), or the owner records in the window log that it is pending and accepts the risk for that
-    pass.
+  - **Approval:** in place (the director's low-risk clearance, above). A material change to how copies are handled goes
+    back to the owner.
   - **Deletion, verified and dated,** when the pass ends (Pass C's last step, §9): the new stack's release uninstalled
     and **all** its PVCs deleted (the backup PVC included); a restore drill's objects deleted; the fixture's database
-    dropped on legacy dev's Galera and its moodledata PVC deleted. Galera's binary logs (`log_bin`, row format,
-    `expire_logs_days=1`) hold the loaded rows until they expire, so the check is repeated after a day and passes only
-    when no binary log older than the drop remains. Galera's write-set cache can hold fragments until newer writes
-    overwrite it; it sits on the same volumes, with the same access, and is recorded as a known residue. Legacy dev's
-    nightly dump covers only its own `moodle` database (`backup.conf`, read 2026-11-26), so a fixture database never
-    enters its backup volumes. The result goes in the window log with the date, and storage returns to its pre-pass
-    figure.
+    dropped on legacy dev's Galera and its moodledata PVC deleted. The result goes in the window log with the date, and
+    storage returns to its pre-pass figure. Legacy dev's nightly dump covers only its own `moodle` database
+    (`backup.conf`, read 2026-11-26), so a fixture database never enters its backup volumes.
+  - **Known residues, accepted under the clearance** (self-review V1307), each inside the same platform and access:
+    `netapp-file-backup` volumes (the pgBackRest repository, the moodledata backup) are also backed up daily by OCIO and
+    kept for 90 days; Galera's binary logs (`log_bin`, `expire_logs_days=1`) on its 5 nodes keep the loaded rows until
+    they rotate out, and its write-set cache until newer writes overwrite it; the platform's logs keep request logs for
+    their own retention.
 
 ## 4. Can we always get back to moodle-nginx?
 
@@ -1266,7 +1267,7 @@ This is the basis for K2: windows start at 17:00, and a maintenance page outside
 | Q13 | *Answered by Phase 0: `artifacts.developer.gov.bc.ca/m950-learning`* | | |
 | Q14 | Who receives alerts, and who is on call? *Legacy's alerts go only to the discontinued Rocket.Chat.* | Monitoring; S12 failure alerts | The owner, by email, until a channel is chosen |
 | Q15 | Are there events to avoid when choosing windows (cohort starts, deadlines)? | Choosing windows | Ask before each window |
-| Q16 | Is copying production personal data to the owner's encrypted laptop acceptable under PSA policy for the migration pipeline? | §13 uses a local pipeline | It was done on 2026-08-26, 2026-11-17 and 2026-11-18; confirm. *2026-11-26: asked of PSA's privacy contact together with the dev rehearsal copies (S16); answer pending* |
+| Q16 | Is copying production personal data to the owner's encrypted laptop acceptable under PSA policy for the migration pipeline? | §13 uses a local pipeline | It was done on 2026-08-26, 2026-11-17 and 2026-11-18; confirm. *Answered 2026-11-26: covered by the director's low-risk clearance of the existing protections (S9, S16), per the owner* |
 | Q17 | Legacy dev is unproven (Galera 4/5 on 2026-11-18; 5/5, Primary and Synced, on 2026-11-25; Routes on the maintenance page; runs 4.5.15). Check and repair it in dev? | Pass B needs a healthy legacy source; S8 needs a restart proof | Repair legacy dev as its own approved dev-only step, after E4 |
 | Q18 | *Done 2026-11-23 (owner approved): test's health monitor is `MANUAL_MODE=true`. Undo: `oc -n 950003-test set env deploy/pod-health-monitor MANUAL_MODE=false`* | | |
 | Q19 | *Answered 2026-11-23: the owner is the ELM contact for reconciliation (§14.9) and for the first post-opening check* | | |
@@ -2172,9 +2173,8 @@ created with `--internal`, so it has no route to the internet.
   - **On a miss,** the stack is tuned (PHP-FPM pool and memory, Postgres, Valkey memory) and re-tested before Pass C; the
     cutover does not proceed on a miss. Pass C repeats the browser probe with each target's own image and data.
 - **Pass C: production-scale acceptance, once per target: test first, then prod (J3).**
-  - **S16 gates first, before any of the target's data is loaded:** `access-diff.sh <target> 950003-dev` is clear, or
-    each name it reports is confirmed or paused; the privacy confirmation is received, or recorded as pending with the
-    owner's acceptance.
+  - **S16 gate first, before any of the target's data is loaded:** `access-diff.sh <target> 950003-dev` is clear, or
+    each name it reports is confirmed or paused.
   - Build the target's isolated legacy fixture (above) and prove the site works from its recovery package alone (S8).
   - Load the target's database (through the local pipeline, with that target's conversion runtime) and its full referenced
     file set (prod about 3 GiB, test about 1.7 GiB) into the new dev stack running the **target's image**, with
@@ -2191,9 +2191,8 @@ created with `--internal`, so it has no route to the internet.
     Record the time taken and the complete-site recovery point (H1).
   - Run a full return (§14) **into the fixture's legacy pods** at this size, and record its duration and storage use
     (RB07). The returned database never meets code other than its own (S7).
-  - **Delete the copy and verify it (S16),** dated in the window log: release and every PVC, restore drill, fixture
-    database and PVC; then, a day later, no Galera binary log older than the drop. Pass C for prod doesn't start until
-    test's copy is gone.
+  - **Delete the copy (S16),** dated in the window log: release and every PVC, restore drill, fixture database and PVC.
+    Pass C for prod doesn't start until test's copy is gone.
 - **Soak: two nights, alongside Pass B and Pass C, not after them (K1).** A week of an idle dev site adds little, so what
   a week would show is triggered instead, and test's bail-out window is prod's soak with real use (§11 needs it closed):
   - **every scheduled task run once** with `admin/cli/scheduled_task.php --execute=…`, guard on and no internet; `task_log`
