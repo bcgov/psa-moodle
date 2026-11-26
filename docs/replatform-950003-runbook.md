@@ -992,6 +992,17 @@ which happens as its own approved step.
   - images referenced by digest;
   - a required-reviewer GitHub environment per namespace.
 
+  *Written 2026-11-25 as a separate workflow, `.github/workflows/deploy-950003.yml`* (the PoC's `deploy.yml` now refuses
+  any 950003 namespace): run by hand only, per GitHub environment `950003-dev|test|prod`; images by digest only (from
+  `build-exact`); profiles `precommit` (outbound off, cron off, nightly backup off), `commit` (S11: outbound on, cron on,
+  backup on) and `fenced` (S13); before any upgrade it runs `upgrade.php --is-pending` from the new php image against the
+  target database and refuses unless Moodle reports "No upgrade needed"; it never runs `upgrade.php`; afterwards it runs
+  `check-outbound-guard.php` (expecting the guard on before S11, off after) or `verify-fenced.sh`. **Owner setup before
+  first use:** create the three GitHub environments with required reviewers; per environment, secrets `OPENSHIFT_SERVER`
+  and `OPENSHIFT_TOKEN`, and variables `NAMESPACE`, `ALERT_TO`, `ROUTE_ALLOWED_SOURCES` (JSON list of CIDRs),
+  `REVIEWER_ADMINS` and `FENCE_SERVICE`; and decide the 950003 image home (`EXACT_REGISTRY_REPO`) with its push
+  credentials.
+
   The OpenShift and Artifactory secrets are added only after this is merged.
 - **C15 (RB14):** separate the application's internet egress (`networkPolicy.externalEgress`) from a narrowly scoped rule
   for ops jobs' Kubernetes API access and alert delivery. Prove both in the isolated dev profile.

@@ -81,6 +81,7 @@ jobs:
             test) ns="${{ secrets.OPENSHIFT_NAMESPACE_TEST }}"; tok="$OC_TOKEN_TEST" ;;
             *) echo "unknown env: $env_name" >&2; exit 1 ;;
           esac
+          case "$ns" in 950003-*) echo "::error::deploy.yml is the PoC path; 950003 deploys only via deploy-950003.yml (C13)"; exit 1 ;; esac
           if [ -n "$OC_SERVER" ] && [ -n "$tok" ]; then
             can_deploy=true
           else
