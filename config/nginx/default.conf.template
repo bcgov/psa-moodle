@@ -58,7 +58,7 @@ server {
     }
 
     # Moodle's background calls (AJAX and web services) keep their own error responses: their callers parse them.
-    location ~ (^/lib/ajax/|^/webservice/|ajax\.php(/|$)) {
+    location ~ (^/(lib/ajax|webservice)/.*\.php(/|$)|ajax\.php(/|$)) {
         include /etc/nginx/conf.d/psa-php.inc;
     }
 

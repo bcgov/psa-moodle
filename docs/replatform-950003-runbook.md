@@ -1,9 +1,10 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v1.3, 2026-11-26.** **Pass A is complete in 950003-dev** and every exercise passed (§0.10). v1.3
-> answers the ninth review ([replatform-950003-v12-review.md](replatform-950003-v12-review.md), V1201–V1209, §0.11):
-> all nine findings accepted, and **sessions in Postgres with Valkey as Moodle's cache are now built**, tested locally
-> against the exact prod build, and waiting for dev. Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done. v1.1 answered
+> **Status: DRAFT v1.4, 2026-11-26.** **Pass A is complete in 950003-dev** and every exercise passed (§0.10). v1.3
+> answered the ninth review ([replatform-950003-v12-review.md](replatform-950003-v12-review.md), V1201–V1209, §0.11)
+> and built **sessions in Postgres with Valkey as Moodle's cache**. v1.4 fixes what a **self-review** of v1.3 found
+> ([replatform-950003-v13-review.md](replatform-950003-v13-review.md), V1301–V1316, §0.12; *not independent*), each
+> fix tested locally against the exact prod build. Next: a fresh `build-exact`, then Pass B. Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done. v1.1 answered
 > the eighth review ([replatform-950003-v10-review.md](replatform-950003-v10-review.md), V1001–V1014, §0.9): every
 > finding is fixed in code and tested locally; the parts only a cluster can prove are listed for Pass A and Pass B.
 > **Phase 2 has started in 950003-dev: Pass A's empty install is running beside legacy** (2026-11-26, §9). Every
@@ -30,6 +31,9 @@
 > **v1.3 answers the ninth review** (§0.11): the session and cache change built, the backup lock moved out of Moodle's
 > key space, session clearing on every restore and cutover, a CP3 profile that can complete SSO, the rehearsal states
 > rendered with their storage and compute, and the load test specified with its platform gate.
+> **v1.4 answers a self-review of v1.3** (§0.12): session caches moved to Valkey so they can't go stale, a real Valkey
+> health check, PHP memory to legacy's 2048M, moodledata out of PHP's code cache, the load test's path and comparison
+> made workable, and three overstated claims corrected.
 > It supersedes the "request a new project set" direction in `README.md` (Current direction) and
 > `docs/quota-request.md`. The plan is to replatform **inside** the existing 950003 namespaces on Silver, using their existing
 > quota plus one temporary increase for prod, then release ad4087 (Gold) and retire a58ce1.
@@ -51,6 +55,9 @@ The service owner is cautious and wants a plan that cannot strand them.
   prod. The frozen legacy database is never written, so a failed return cannot strand us.
 
 **Please try to break this promise.**
+
+**If you reviewed v1.3,** start at §0.12. v1.4 answers a **self-review** (no independent reviewer was available), so
+please re-check its findings as well as their fixes. The questions are at the end of §0.12.
 
 **If you reviewed v1.2,** start at §0.11: check that each of V1201–V1209 is resolved by the code and tests listed
 there, then review the session and cache implementation itself (the review asked for one), the rehearsal states and
@@ -592,7 +599,7 @@ and prod remain no-go.** The owner accepted all nine findings on 2026-11-26.
 ### Findings
 | Finding | What changed | Tested | Where |
 |---|---|---|---|
-| V1201 a single Valkey can still fail requests | Accepted as a bounded interruption (owner). Only the application cache maps to Valkey, with no store behind it, so an unreachable Valkey means uncached requests, never stale ones. Moodle's connection timeout is 1 s (was 3). Cache-only Valkey runs as a **Deployment** with no volume (`Recreate`, so two never serve at once), which Kubernetes replaces when its node fails, where a StatefulSet's pod waits until the node is confirmed gone. The friendly page covers what does fail | Locally, the exact prod build with this configuration, 4 logged-in users and 1 visitor in a loop (below): Valkey **stopped** for 60 s, 3 of 1,121 requests failed, all in the second it stopped, all shown the friendly page; Valkey **frozen** for 30 s (a crashed node), 0 of 115 failed, each about 1 s slower; every user stayed logged in. **Dev: in-flight kill, a 10-minute outage and recovery under traffic, on real data** | `scripts/ops/configure-cache.php`, `templates/valkey-workload.yaml`, `config/nginx/` |
+| V1201 a single Valkey can still fail requests | Accepted as a bounded interruption (owner). Only the application cache maps to Valkey, with no store behind it, so an unreachable Valkey means uncached requests, never stale ones *(not true as built: session caches could go stale; v1.4 maps them to Valkey and fixes the probe, V1301, V1302, §0.12)*. Moodle's connection timeout is 1 s (was 3). Cache-only Valkey runs as a **Deployment** with no volume (`Recreate`, so two never serve at once), which Kubernetes replaces when its node fails, where a StatefulSet's pod waits until the node is confirmed gone. The friendly page covers what does fail | Locally, the exact prod build with this configuration, 4 logged-in users and 1 visitor in a loop (below): Valkey **stopped** for 60 s, 3 of 1,121 requests failed, all in the second it stopped, all shown the friendly page *(these three were; not every failure will be, V1304, §0.12)*; Valkey **frozen** for 30 s (a crashed node), 0 of 115 failed, each about 1 s slower; every user stayed logged in. **Dev: in-flight kill, a 10-minute outage and recovery under traffic, on real data** | `scripts/ops/configure-cache.php`, `templates/valkey-workload.yaml`, `config/nginx/` |
 | V1202 the backup's lock collides with Moodle's session locks | The backup locks `pg_try_advisory_lock(1347633474, 1)`, the two-integer form, and checks ownership with `classid`, `objid` and `objsubid=2`. Moodle's session locks are single bigint keys (a separate key space); its lock factory's namespace is `crc32("moodle:mdl_")` = 1289808297 | Local Postgres 15.15: with a session lock on `727368` and a lock-factory lock held, the backup's lock is granted and detected; the old form would have been blocked; a second contender gets `f` | `scripts/ops/moodledata-backup.sh` |
 | V1203 restored sessions | `restore-paired.sh`'s check clears `mdl_sessions` on the restored database and fails unless none remain. The cutover clears them after the load (§13.2) and the return before legacy reopens (§14.7). Legacy's Redis is never flushed | Script render; **dev (Pass B): a cookie saved before logout is refused after a restore, after the cutover and after the return** | `scripts/ops/restore-paired.sh`, §13.2, §14.7 |
 | V1204 CP3 can't complete SSO | New `deploy-950003` profile **`review`**: as precommit (guard on, cron off, backup suspended), but php may reach HTTPS outside the cluster for Moodle's server-side token exchange with the SSO server. SMTP stays blocked by policy. The workflow checks the HTTPS policy exists, the app SMTP policy doesn't and cron is at 0 | `chart-egress-matrix.sh --expect review` passes for dev (every overlay), test and prod, and fails against precommit (no HTTPS) and commit (SMTP) renders; CI runs it | `.github/workflows/deploy-950003.yml`, `scripts/chart-egress-matrix.sh`, `lint.yml`, §13.2 |
@@ -615,7 +622,9 @@ and prod remain no-go.** The owner accepted all nine findings on 2026-11-26.
   fresh anyway.
 - **Friendly page:** nginx shows `/psa-error.html` for a PHP failure (500), an unreachable PHP (502) and a timeout
   (504), keeping the status code. Moodle's own 503 maintenance page (the nightly pause), its 404s, and every AJAX and
-  web-service response (`/lib/ajax/`, `/webservice/`, `*ajax.php`) pass through untouched. The page shows the time and
+  web-service response (`/lib/ajax/`, `/webservice/`, `*ajax.php`) pass through untouched *(v1.4: upstream PHP
+  responses do; nginx's own 502 and 504 are the friendly page everywhere, and Moodle's own errors are 404s the page
+  never sees, V1304, V1312, §0.12)*. The page shows the time and
   nginx's request id, and the access log records the request id. Tested locally against the pinned images, light and
   dark, desktop and phone.
 
@@ -669,6 +678,50 @@ owner). That clearance, not the technical reviews, is the approval.
    Valkey?
 3. Are the rehearsal states and the load-test specification (§9) complete enough to run, once Platform Services agree?
 4. Is anything else needed before Pass B starts?
+
+## 0.12 Changes in v1.4 (self-review of v1.3, 2026-11-26)
+
+No independent reviewer was available, so v1.3 was reviewed by its own author, adversarially, at the owner's request
+([replatform-950003-v13-review.md](replatform-950003-v13-review.md), V1301–V1315). **That review is not independent;
+the next independent review should cover v1.3 and v1.4 together.** The owner accepted the findings. V1307 (data
+handling) was closed instead by the director's low-risk clearance (S16).
+
+### Findings
+| Finding | What changed | Tested locally (exact prod build) | Where |
+|---|---|---|---|
+| V1301 session caches go stale when Valkey restarts | Session-mode caches map to Valkey too. Their invalidation records (`core/eventinvalidation`) were already in Valkey, so the two are now lost or kept together. Without TTLs, `grade_categories`, `courseeditorstate` and the content bank caches stayed stale until logout; the others for 10–30 minutes | A browser session fills `core/grade_categories`, its event fires, Valkey restarts, the session reads again. **v1.3's mapping: `v1` (stale). v1.4's: empty (fresh).** The control (no restart) is fresh under both. An admin's session row after five pages: **2,832 bytes, against 6,196** with caches in the session | `scripts/ops/configure-cache.php` |
+| V1302 a hung Valkey is never restarted | Liveness is `valkey-cli ping` (timeout 2 s, every 5 s, 3 failures): a Valkey that stops answering restarts empty, so nothing invalidated while it was away can be served stale | Render | `templates/valkey-workload.yaml` |
+| V1303 PHP memory below legacy | `memory_limit = 2048M`, as legacy: Moodle's backup and restore raise only to 512M (`MEMORY_EXTRA`). php pods request 1 GiB with a 3 GiB limit, and cron 512 MiB with 3 GiB (was 1 GiB and 512 MiB; legacy has no limits). Pass B-HA's load test sets the final figures and `pm.max_children`; Pass C restores the target's largest `.mbz` | PHP-FPM reports 2048M through the web; renders. Memory quota: prod uses 5.6 of 32 GiB of requests | `config/php/php.ini`, `values-950003-*.yaml`, §9 |
+| V1304 the friendly page covers fewer failures than claimed | Claim corrected (§0.11, notes below). Moodle sends 404 for its own error pages; only PHP fatals, start-up errors and nginx's 502/504 reach the friendly page. Pass B counts how the failures in a Valkey kill show | Source read (`core_renderer::fatal_error`, `bootstrap_renderer::early_error`) | §0.11, §9 Pass B |
+| V1305 the load generator can't reach Moodle as specified | A TLS-terminating sidecar in the generator pod (HTTPS to localhost, HTTP to the web Service with the wwwroot's Host header). The Route allowlist is never widened | n/a (Pass B-HA proves the path before Platform Services schedule the test) | §9 |
+| V1306 the comparison isn't like for like | The relative check runs at equal shape (one php replica with legacy dev's 1.5-core limit); the legacy side runs against a disposable fixture database, never legacy dev's own `moodle` | n/a | §9 |
+| V1307 deletion can't be complete | Closed by the director's low-risk clearance: the residues are recorded in S16 as accepted | n/a | S16 |
+| V1308 database-only recovery revives sessions | The H1 database-only recovery clears `mdl_sessions` | n/a | S12 |
+| V1309 a cache-setup failure fails the installer hook | Non-fatal: logged; the php pods apply it at their next start, and `--check` reports it | Render | `templates/job-install.yaml` |
+| V1310 `review` reaches any HTTPS host | Not changed: the guard blocks the integrations, and reviewers trigger the rest. **Option, the owner's call:** narrow `externalHttpsCidr` to SSO's address (`loginproxy.gov.bc.ca`, 142.34.229.4) for the review window | n/a | §0.12 |
+| V1311 the cache setup runs during the nightly pause | Skipped while the backup's pause page (`rp-backup-fence`) is up; an operator's own maintenance page doesn't stop it | Both cases in the php container | `templates/php-deployment.yaml` |
+| V1312 the AJAX rule reaches non-PHP files | The rule matches `.php` only. Claim corrected: upstream PHP responses on AJAX and web-service paths pass untouched; nginx's own 502 and 504 are the friendly page everywhere | `/webservice/upgrade.txt` served by nginx (200, `text/plain`); autosave's JSON 500 and `service.php`'s JSON pass; a page's 500 shows the friendly page | `config/nginx/default.conf.template` |
+| V1313 eviction and blocking purges | `lazyfree-lazy-user-del yes`, so Moodle's `DEL` frees in the background. Evictions are counted in every load and soak check; legacy prod's Redis peaks at 37 MB with `noeviction` and has never evicted, against our 256 MB | Valkey 7.2.16 accepts and reports the setting | `templates/valkey-configmap.yaml`, §9 |
+| V1314 load-test prerequisites | `loadTest.generatorPasswordSecret` sets `$CFG->tool_generator_users_password` (dev only); site-policy acceptance, theme assertions and maintenance listed; the generator's deadline is pod-level | Renders: the variable appears only when the Secret is named | `config.openshift.php`, `_helpers.tpl`, `values.yaml`, §9 |
+| V1315 tokens held outside the cluster | Checked by hand: legacy's repository holds dev and prod tokens alike, so S16 isn't widened. Outside this plan, the owner knows legacy's repository lets every writer reach prod | GitHub API (read-only) | S16 |
+
+### Found while fixing them
+- **V1316: PHP's code cache hid every moodledata change from PHP-FPM.** With `opcache.validate_timestamps = 0`, the
+  first test of V1301's fix still read stale. PHP-FPM had compiled `muc/config.php` and never read it again, and
+  Moodle's `invalidate_opcode_php_cache` after a write clears only the writing process's cache (here the CLI, whose
+  cache is off). The same applies to **language customisations** (`lang/*_local/`): a change saved on one pod would
+  not reach the others until they restarted, where legacy re-reads files on every request. Fix: moodledata is excluded
+  from the code cache (`opcache.blacklist_filename`); the code itself, immutable in the image, stays cached without
+  file checks. **Tested:** with PHP-FPM running, a mapping change made from the CLI takes effect on the next request,
+  in both directions, with no restart. `config/php/php.ini`, `config/php/opcache-blacklist.txt`, both Containerfiles.
+- **The drain-style Valkey outage, rerun under v1.4:** Valkey stopped for 60 s under the same traffic; **0 of 1,105
+  requests failed**; every user stayed logged in. v1.3's run lost 3, all in the second Valkey stopped, so a few
+  in-flight failures remain possible.
+
+### Asked of the next independent review
+1. Check V1301–V1316 against the code and the tests above, and re-check the session and cache implementation as a whole.
+2. Is the bounded interruption, with V1301, V1302 and V1316 fixed, a sound basis for a single Valkey?
+3. Is the load-test specification (§9) now complete enough to schedule?
 
 ## 1. Summary
 
@@ -794,7 +847,7 @@ owner). That clearance, not the technical reviews, is the approval.
     storage**, with the recovery target enforced, and its duration recorded (V602, V603).
 
   **Complete-site recovery point (H1):** if only the database is lost, it is recovered to within minutes (WAL) and used
-  with the live files. If the moodledata volume is lost, the site goes back to the last nightly paired set, losing up to
+  with the live files, and `mdl_sessions` is cleared before anyone gets back in (V1203, self-review V1308). If the moodledata volume is lost, the site goes back to the last nightly paired set, losing up to
   24 hours of work. Alternatively, the owner may keep the database current and accept the recent uploads that
   `check-filedir` lists as missing. The owner decides per incident.
 - **S13. Fence without the new application.** There are two procedures, both using infrastructure only (DR04):
@@ -2111,7 +2164,10 @@ created with `--internal`, so it has no route to the internet.
     install** (§0.11):
     1. **Valkey under traffic on real data,** web and cron: killed with requests in flight; down for 10 minutes;
        recovery; eviction pressure (`maxmemory` reached); concurrent cache rebuilds. Expected: failures only in the
-       second it goes, shown the friendly page; slower but successful pages while it's down; nobody logged out;
+       second it goes; slower but successful pages while it's down; nobody logged out. **Count how the failures show**
+       (the friendly page's 500, Moodle's own error page with a 404, or a cut-off page) and record the mix (self-review
+       V1304). **Staleness:** change a gradebook category and a course category in one session, restart Valkey, and
+       check another open session sees both changes (V1301);
     2. **sessions:** several requests sharing one session (a quiz page with autosave), many sessions, a long request, a
        php pod killed mid-request; lock waits and connections against `max_connections`;
     3. **the nightly pause with database sessions:** idle logged-in users don't hold it; an in-flight request and a lock
@@ -2128,19 +2184,38 @@ created with `--internal`, so it has no route to the internet.
   load-tested past 1,500 concurrent users; losing that speed is a deal breaker.
   - **Gate first:** Platform Services review and schedule the test, even though it runs inside dev
     (`prepare-to-load-test-application-on-openshift.md`). Email `PlatformServicesTeam@gov.bc.ca` with:
-    - the traffic's origin: a Job in 950003-dev, against each stack's web Service, never a Route;
+    - the traffic's origin: a Job in 950003-dev, against each stack's web Service, never a Route. Moodle checks the Host
+      header and sends `Secure` cookies (HTTPS wwwroot, `sslproxy`), so the generator pod carries a TLS-terminating
+      sidecar: JMeter talks HTTPS to `localhost`, and the sidecar forwards plain HTTP to the web Service with the
+      wwwroot's Host header (self-review V1305). This leaves out the router; the browser probe below covers the full
+      path. The Route's reviewer allowlist is never widened for the generator;
     - the ramp, duration and rate;
     - its dependencies: none outside the namespace (SSO and every integration are excluded);
     - the abort criteria: errors above 5% for 2 minutes, any effect on legacy dev, or a quota refusal.
 
     The run itself must start on a weekday after 17:30 or at a weekend, with the owner present as namespace
-    administrator, and the generator Job must have `activeDeadlineSeconds`.
+    administrator, and the generator pod must have a **pod-level** `activeDeadlineSeconds` (`spec.template.spec`): only
+    that puts it in the time-bound quota, not the Job's own deadline (self-review V1314).
   - **Scenario:** Moodle's own load-test generator (`admin/tool/generator`), which produced the plan legacy's BlazeMeter
     runs used (legacy's cleanup script deletes its forum replies). `maketestcourse.php --size=XL` builds a synthetic
     course with 10,000 enrolled synthetic users in each dev stack. `maketestplan.php --size=XL` writes the JMeter plan
     and users file. Each simulated user logs in with its own session and cookie jar, then views the front page, the
     course, a page, the forum and a discussion, posts a reply, views the participants, and logs out. Run with Apache
     JMeter (open source) in the time-limited Job, from the same plan file against both stacks.
+  - **Prerequisites (self-review V1314):**
+    - the synthetic users' password reaches Moodle as `$CFG->tool_generator_users_password` through the chart value
+      `loadTest.generatorPasswordSecret` (a Secret with key `password`, dev only);
+    - the synthetic users have accepted the site policies (legacy dev's data has `tool_policy` policies), or the first
+      login of every user lands on the policy page;
+    - the plan's login assertions match the `bcgovpsa` theme's markup;
+    - the site is out of maintenance mode for the run;
+    - `maketestcourse.php` and `maketestplan.php` run with `--bypasscheck` (they otherwise need developer debugging).
+  - **Like-for-like comparison (self-review V1306):**
+    - the relative check runs at **equal shape**: psa-moodle at one php replica with legacy dev's CPU limit (1.5 cores),
+      against the legacy side; the 1,500-user target runs separately at prod shape (Pass B-HA);
+    - the legacy side runs against a **disposable legacy fixture database** loaded from legacy dev's dump (the Pass C
+      fixture's machinery, with mail disabled there), never against legacy dev's own `moodle`: the generator writes
+      10,000 users, a course and forum replies, and legacy has no outbound guard.
   - **Workload, stated explicitly** (the plan's pacing is a throughput cap *shared by all users*, 120 requests a minute
     unless set):
     1. normal: 50 users at 120 requests a minute for 15 minutes;
@@ -2157,8 +2232,10 @@ created with `--internal`, so it has no route to the internet.
     - per page: median, p95, p99, errors and throughput;
     - PHP-FPM workers and queue: `php-fpm-healthcheck -v` in each php pod every 10 s (V1209);
     - Postgres: connections, lock waits, WAL rate and replica lag;
-    - Valkey memory and evictions;
-    - pod memory and CPU, and the generator's own CPU (a saturated generator invalidates the run).
+    - Valkey memory and `evicted_keys` (any eviction is a finding: Moodle's Redis store assumes nothing is evicted,
+      self-review V1313);
+    - pod memory and CPU, each PHP-FPM worker's memory, and the generator's own CPU (a saturated generator invalidates
+      the run). The worker memory sets the php pods' final memory limit and `pm.max_children` (self-review V1303).
   - **Browser probe:** headless Chromium times full page loads (warm and cold, median and p95) through each stack's
     Route, as a reviewer address. It runs before the load and during it, on login, dashboard, course, forum discussion,
     quiz attempt and a file download.
@@ -2189,6 +2266,8 @@ created with `--internal`, so it has no route to the internet.
     - `secret/` and `lang/` taken only from the recovery set, never from the running source.
 
     Record the time taken and the complete-site recovery point (H1).
+  - **Restore the target's largest real course `.mbz`** on the new stack and record its peak memory: legacy allows PHP
+    2048M and course developers depend on that flow (self-review V1303).
   - Run a full return (§14) **into the fixture's legacy pods** at this size, and record its duration and storage use
     (RB07). The returned database never meets code other than its own (S7).
   - **Delete the copy (S16),** dated in the window log: release and every PVC, restore drill, fixture database and PVC.

@@ -1,11 +1,13 @@
 <?php
 // Moodle cache (MUC) configuration for psa-moodle (runbook §0.11; owner decision 2026-11-26; review V1201).
 //
-// Application caches go to Valkey (Moodle's own cachestore_redis); session caches stay in Moodle's session store,
-// which now lives in Postgres with the session itself; request caches stay static. Only Valkey is mapped for the
-// application mode, deliberately without a file store behind it: when Valkey can't be reached at a request's start,
-// Moodle marks the store not ready and runs that request uncached (core_cache\factory's dummy store), which is slower
-// but correct. A second store would keep serving entries that a missed invalidation left stale (V1201).
+// Application and session caches go to Valkey (Moodle's own cachestore_redis); request caches stay static. Session
+// caches go to Valkey too, not to Moodle's session store (now in Postgres): they are invalidated through the
+// core/eventinvalidation records, which live in Valkey, so the two must be lost or kept together (self-review V1301).
+// It also keeps session rows small. Only Valkey is mapped, deliberately without a file store behind it: when Valkey
+// can't be reached at a request's start, Moodle marks the store not ready and runs that request uncached
+// (core_cache\factory's dummy store), which is slower but correct. A second store would keep serving entries that a
+// missed invalidation left stale (V1201).
 //
 // Regenerated from the release's environment, never copied: legacy's muc/config.php is excluded from every copy, and
 // this runs at every php container start and at the end of the installer, so a fresh dataroot, a restored copy and a
@@ -46,7 +48,7 @@ $wantstore = [
 ];
 $wantmappings = [
     \core_cache\store::MODE_APPLICATION => [PSA_STORE],
-    \core_cache\store::MODE_SESSION => ['default_session'],
+    \core_cache\store::MODE_SESSION => [PSA_STORE],
     \core_cache\store::MODE_REQUEST => ['default_request'],
 ];
 

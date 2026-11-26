@@ -201,6 +201,14 @@ duplicate them in our own Secret.
     secretKeyRef:
       name: {{ include "psa-moodle.valkey.secretName" . }}
       key: VALKEY_PASSWORD
+{{- with .Values.loadTest.generatorPasswordSecret }}
+# Dev load tests only (runbook §9): the generator plan's synthetic users' password (self-review V1314).
+- name: TOOL_GENERATOR_USERS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: password
+{{- end }}
 - name: MOODLE_WWWROOT
   value: {{ required "moodle.wwwroot is required (set in values-<env>.yaml)" .Values.moodle.wwwroot | quote }}
 - name: MOODLE_BEHIND_PROXY

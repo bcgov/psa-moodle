@@ -42,14 +42,20 @@ spec:
         - name: php
           image: {{ include "psa-moodle.image.php" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # Moodle's cache configuration (Valkey as the application cache, runbook §0.11) is regenerated from this
-          # release's environment at every start. A failure is logged and the pod still serves: uncached is slower, not
-          # broken. deploy-950003 verifies the mapping with --check after every rollout.
+          # Moodle's cache configuration (Valkey for application and session caches, runbook §0.11) is regenerated from
+          # this release's environment at every start. A failure is logged and the pod still serves: uncached is slower,
+          # not broken. deploy-950003 verifies the mapping with --check after every rollout. Skipped while the nightly
+          # backup's pause page is up: no Moodle code runs during the pause (V801, self-review V1311).
           command:
             - /bin/sh
             - -c
             - |
-              php /usr/local/share/psa/configure-cache.php || echo "[cache-config] WARNING: not applied (see above)" >&2
+              fence=/var/www/moodledata/climaintenance.html
+              if [ -f "$fence" ] && grep -q 'rp-backup-fence' "$fence"; then
+                echo "[cache-config] backup pause in progress: not run at this start"
+              else
+                php /usr/local/share/psa/configure-cache.php || echo "[cache-config] WARNING: not applied (see above)" >&2
+              fi
               exec php-fpm
           ports:
             - name: fpm

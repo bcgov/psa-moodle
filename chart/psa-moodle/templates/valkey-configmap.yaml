@@ -27,6 +27,9 @@ data:
 
     maxmemory {{ .Values.valkey.maxmemory }}
     maxmemory-policy allkeys-lru
+    # Moodle purges a cache definition with DEL on one hash; free it in the background so a large purge can't block
+    # other requests past Moodle's 1 s timeout (self-review V1313).
+    lazyfree-lazy-user-del yes
 
     loglevel notice
     logfile ""

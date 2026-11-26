@@ -39,6 +39,13 @@ $CFG->directorypermissions = 02777;
 $CFG->session_handler_class = '\core\session\database';
 $CFG->session_database_acquire_lock_timeout = 120;
 
+// --- Load testing (runbook §9 Performance acceptance, self-review V1314) ---
+// Moodle's generator plan (admin/tool/generator) logs its synthetic users in with this password. The chart sets it only
+// when a dev load test names a Secret for it; elsewhere it stays unset.
+if (getenv('TOOL_GENERATOR_USERS_PASSWORD')) {
+    $CFG->tool_generator_users_password = getenv('TOOL_GENERATOR_USERS_PASSWORD');
+}
+
 // --- Fast local cache areas (emptyDir, memory-backed via Helm) ---
 $CFG->localcachedir = '/mnt/ramdisk/localcache';
 

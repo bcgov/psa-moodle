@@ -106,6 +106,7 @@ COPY config/php/php.ini      $PHP_INI_DIR/conf.d/zz-moodle.ini
 # [www] (from the base image) and [moodle] try to bind 0.0.0.0:9000 and FPM
 # fails to start with exit 78.
 COPY config/php/php-fpm.conf /usr/local/etc/php-fpm.d/www.conf
+COPY --chmod=0644 config/php/opcache-blacklist.txt /usr/local/etc/php/opcache-blacklist.txt
 # Moodle's cache configuration (Valkey as the application cache), run at every php start by the chart (runbook §0.11).
 # Outside the web root, so nginx can never serve it.
 COPY --chmod=0644 scripts/ops/configure-cache.php /usr/local/share/psa/configure-cache.php

@@ -66,11 +66,15 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.valkey.resources | nindent 12 }}
+          # A real ping, not a TCP check: a hung Valkey still accepts connections. Restarted, it comes back empty, so
+          # nothing invalidated while it was unreachable can be served stale afterwards (self-review V1302).
           livenessProbe:
-            tcpSocket:
-              port: valkey
+            exec:
+              command: ["valkey-cli", "ping"]
             initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
           readinessProbe:
             exec:
               command: ["valkey-cli", "ping"]

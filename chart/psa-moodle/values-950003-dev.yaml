@@ -33,6 +33,11 @@ route:
 
 cron:
   enabled: false             # 0 until the commit point (C3, S4, S11)
+  # Room for PHP's 2048M per request (legacy's cron has no memory limit; self-review V1303). Requests count against
+  # quota, limits don't; 950003's memory quota is 32 GiB, about 5.6 used.
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits:   { memory: 3Gi }
 
 web:
   replicas: 1
@@ -40,6 +45,12 @@ web:
 php:
   image: { name: php, digest: "" }   # the exact-code dev build (4.5.15) for Pass B; the target build for Pass C (J3)
   replicas: 1
+  # Legacy's php pods have no memory limit and run 50 workers. 20 workers at up to 2048M each plus a 256 MB opcache
+  # can't fit 1 GiB, so a busy or heavy pod would be killed with every request on it (self-review V1303). Start at
+  # these; Pass B-HA's load test measures worker memory and sets the final figures and pm.max_children.
+  resources:
+    requests: { cpu: 200m, memory: 1Gi }
+    limits:   { memory: 3Gi }
 
 hpa:                         # fixed replicas in every migration state (RB04)
   web: { enabled: false }
