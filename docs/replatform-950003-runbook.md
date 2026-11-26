@@ -1676,6 +1676,11 @@ created with `--internal`, so it has no route to the internet.
     - pod-kill and PDB behaviour;
     - alerts;
     - **the writer fence and the full shutdown**, and their reverses, with quota measured in each state (RB04, DR04).
+  - **The empty install needs `REVIEWER_ADMINS=2`** in the `950003-dev` environment. With outbound off the guard makes
+    only the reviewer list site admins, and Moodle's installer creates its admin as user 2 and then calls `get_admin()`
+    (`lib/installlib.php` line 521). The fourth attempt, 2026-11-26, failed exactly there with the list empty, after
+    installing every plugin. `deploy-950003` now refuses `empty-install` unless the list includes 2. Pass B sets the list
+    back to the real reviewers' ids in legacy dev's data.
   - **Undo:** `helm uninstall psa-moodle --wait` (it removes the PostgresCluster, and Crunchy then removes its pods and
     volumes); then delete what survives an uninstall by design: PVCs `psa-moodle-moodledata-backup` (resource policy
     keep) and `data-psa-moodle-valkey-0` (a StatefulSet volume), and Secrets `psa-moodle-admin` and

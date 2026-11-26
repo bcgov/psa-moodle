@@ -117,6 +117,12 @@ jobs:
           if [ "$ENV_SHORT" != dev ] && { [ "$IN_PROFILE" = empty-install ] || [ "$IN_OVERLAY" != none ]; }; then
             echo "::error::empty-install and the size overlays are for 950003-dev only"; exit 1
           fi
+          # With outbound off, the guard makes only REVIEWER_ADMINS site admins. Moodle's installer creates its admin as user
+          # 2 and then needs get_admin() to find it (installlib.php), so an empty install needs 2 in the list (Pass A,
+          # 2026-11-26: the installer failed at that call with the list empty).
+          if [ "$IN_PROFILE" = empty-install ] && ! tr ',' '\n' <<< "$V_REVIEWER_ADMINS" | grep -qx 2; then
+            echo "::error::empty-install needs REVIEWER_ADMINS to include 2 (the installer's admin user)"; exit 1
+          fi
           if [ "$IN_SITE_HOST" = public ] && [ -z "$V_PUBLIC_WWWROOT" ]; then
             echo "::error::site_host=public needs the environment variable PUBLIC_WWWROOT"; exit 1
           fi
