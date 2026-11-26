@@ -1718,6 +1718,15 @@ created with `--internal`, so it has no route to the internet.
     with no gaps stopped the script silently (`grep` under `pipefail`); Crunchy rejects `--target-action` in a restore
     request (it sets it itself), which left the first drill waiting in `ReadyForRestore`; and the check Job ran before
     Crunchy reset the restored `moodle` role's password to the new Secret, so it now retries (`backoffLimit: 4`).
+    **Pod kills (owner-approved), one at a time with the login page probed every 2 s:** every component recovered by
+    itself. web: ready in 8 s, about 20 s of connection failures then 503; php: 9 s, about 10 s of 502; cron: no site
+    impact; Valkey: 20 s, about 20 s of 500; Postgres primary: back within seconds, about 12 s of 500. These outages come
+    from dev's single replicas. Test runs php 2, web 2, Postgres 2; prod php 3, web 3, Postgres 3, so those kills there
+    should be invisible or a short failover. **Valkey is one replica in every environment and has no disruption
+    budget:** in prod, any Valkey restart (node drain, eviction, out of memory) means about 20 s of errors for every user,
+    where legacy runs Redis with Sentinel on 5 nodes. **Open question for the owner and the next review:** accept that,
+    or run Valkey with a replica and Sentinel before prod. The php and web budgets (`maxUnavailable: 1`) allow evicting
+    dev's only pod, which is right for dev and harmless at 2 or more replicas.
     Earlier attempts each found a defect, fixed before the next: `oc` missing on the runner; pasted variables breaking
     the render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning`; the empty reviewer
     list. Still to fix with the next images: the `X-PSA-Stack` header (C12) isn't set, and the responses expose
