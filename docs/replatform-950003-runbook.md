@@ -280,6 +280,7 @@ evidence (dumps, logs, packages) is under `~/Moodle/private-backups/` (S9).
 | Return tooling (D3) | Dump allowlist check, restricted import account, frozen checksums, switch and unswitch, legacy fence and clean-up | `bailout-*.sh`, `frozen-checksums.sh`, `legacy-*.sh` | §8.3, §8.4 step 6 |
 | The only deploy path into 950003 (C13) | Manual, per GitHub environment with required reviewers; digests only; refuses unless `upgrade.php --is-pending` says no upgrade is needed; never runs `upgrade.php`; checks the guard or the fence afterwards. **Not yet run:** no environments configured | `.github/workflows/deploy-950003.yml` | §8.1 C13 |
 | Patching | Dependabot (daily base images, weekly Actions), daily Trivy scan failing on fixable CRITICAL, one PHP version across Containerfiles; first scan clean | `.github/dependabot.yml`, `.github/workflows/image-scan.yml` | §8.2 |
+| Shared-namespace collision check (§8.1, review focus 2) | Every collision category triggered by a deliberately colliding chart; legacy dev with Pass A's values passes | `check-collisions.sh` | §8.1 |
 | Legacy recovery package and restart proof (S8, RB09) | **Dev, on the cluster, owner-approved:** package taken (598 MB, checksummed); php, web and cron pods replaced; same digests and code, site and cron working | `recovery-package.sh`, `restart-proof.sh` | §8.3 |
 
 ### Found during implementation
@@ -1084,6 +1085,17 @@ which happens as its own approved step.
 - **Route:** the chart's Route only ever carries the temporary hostname. **The public Routes stay legacy objects** until
   Phase 5.
 - **Validation:** `helm lint`, `helm template` and `ops/replatform/check-collisions.sh` (read-only; normalises whitespace).
+  *Written 2026-11-26:* `check-collisions.sh <ns> <release> -- <helm args>` renders the release locally and reads the
+  namespace with `oc get` (Secret names and labels only). It fails on a rendered kind and name that already exists and
+  isn't the release's (NAME); a live name under a PostgresCluster's operator prefix (PREFIX); any selector, either way,
+  that matches the other side's pods, pod templates, Jobs, CronJobs or Postgres pods (ADOPT: Services, Deployments,
+  StatefulSets, ReplicaSets, PDBs, NetworkPolicies, with `matchExpressions`); and a Route host already in use (HOST). It
+  reports, without failing, legacy NetworkPolicies with an empty selector and new policy peers that admit legacy pods.
+  Proven: a deliberately colliding chart triggered every category against legacy dev (50 findings), and a release's own
+  labelled objects are excluded. **Legacy dev with `values-950003-dev.yaml` (39 objects, Pass A's install): PASS, no
+  collisions.** Its notes are the four namespace-wide legacy policies already in §5.8 (`allow-all-internal`,
+  `allow-from-openshift-ingress`, `deny-by-default`, `platform-services-controlled-default`). Run it again before every
+  install or upgrade beside legacy, and for each Pass C fixture.
 
 ### 8.2 Image changes
 - **Exact code (C10, S7).** Build one image per legacy build: **test** at `2024100711.03` (Build 20260519), **prod** at
