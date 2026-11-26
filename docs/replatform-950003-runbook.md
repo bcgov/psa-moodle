@@ -1189,6 +1189,16 @@ which happens as its own approved step.
 
   *Still open:* the restart proof in legacy dev (§8.4; a cluster change, needs approval), and the test and prod
   packages, taken close to their windows (§10, §11).
+- `restart-proof.sh <ns> <package> [--apply]` (S8): read-only checks that each live php, web and cron pod template equals
+  the package's, the running digests are the package's copies, the php pod's code matches `code.sha256` file for file,
+  the login page renders through the web Service with the site's host name, and cron completed a run in the last
+  5 minutes. `--apply` deletes one pod of each, waits for the replacements and repeats every check on them.
+  *First run, legacy dev, 2026-11-25:* checks 1-3 pass; **the login page fails (HTTP 500)**, because legacy dev's Moodle
+  sessions are broken. Dev has **no `redis-proxy` Service** (test and prod have one, identical to the legacy template
+  `moodle-nginx/openshift/redis-proxy.yml`), and the `redis-proxy` pod has been stuck since 2026-11-02: it logged
+  `no such host` for `redis-node-0` while Redis restarted, and drops every connection since. Redis itself is healthy (5/5
+  ready, DNS resolves). Not public, because dev's Route points at the maintenance page. Pass B (J3) and the restart proof
+  both need legacy dev working, so the fix (create the Service, restart the proxy) comes first.
 
 **Return (D3, RB13)**
 - `bailout-dump-check.sh`: accepts only a single-database `mariadb-dump`, without `--databases`. It rejects `USE`,
