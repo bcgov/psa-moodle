@@ -44,6 +44,11 @@ The accepted missing files are **the frozen source's own gaps, measured in the s
 Phase 0's live figures, for comparison: **prod 3** referenced files missing (one badge's images, 2021), **test 9** (2021
 user icons and backups; two H5P files, 2026-01). A count far above these is a reason to stop and look before going on.
 
+**Legacy dev (Pass B, 2026-11-26): 1,399 of 7,519** referenced files missing, none in `trashdir`. Looked at before going
+on: H5P libraries (1,085), automated and user course backups (163, about 1.3 GB), H5P exports and cached assets, 2021
+user icons and badge images. Legacy dev's own gaps, not the copy's; accepted for Pass B only. H5P content may not render
+in dev on either stack.
+
 *Not a source gap:* the backup tests' "62 known gaps" came from comparing the 18 November prod dump with files copied on
 25 November: 59 more files had been deleted, and purged from `trashdir`, in between. Comparing a dump with files from
 another day always produces such entries, which is why step 2 measures the frozen source itself.

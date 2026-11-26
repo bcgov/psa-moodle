@@ -2113,6 +2113,20 @@ created with `--internal`, so it has no route to the internet.
     race (`oc wait` before Crunchy had created the primary); fixed, and the checks were completed by hand: `FENCED`.
     **S15 proved: the router enforces the reviewer allowlist.** The temporary Route answered the owner's allowed
     address (HTTP 200, the maintenance page) and **refused the owner's phone on cellular**, with no data loaded yet.
+  - ***Files pre-copied, 2026-11-26*** (§13.1 T−7d, owner-approved):
+    - a pre-window dump of legacy dev (`mariadb-dump --single-transaction`, 5 s, 22 MB, 713 tables, footer and
+      SHA-256 checked), loaded into the local pipeline's MariaDB (`local-pipeline.sh dev`, version `2024100715`);
+    - `referenced-files.sql`: 7,519 hashes, 1.64 GiB, no hash with two sizes;
+    - a read-only check Job on legacy's own filedir found **1,399 referenced files missing from legacy dev itself**,
+      none in its `trashdir` (prod: 3, test: 9). By area: H5P libraries (`mod_hvp` 681, `core_h5p` 404), automated and
+      user course backups (163, about 1.3 GB), H5P exports and cached assets, 2021 user icons and badge images. They are
+      legacy dev's own gaps, accepted as Pass B's known-missing list; H5P content may not render in dev on **either**
+      stack, so Pass B's functional checks compare like with like;
+    - `rp-moodledata-copy`: **6,120 files copied and verified** (size and SHA-1), `lang/` and `secret/` identical, 0
+      unexpected missing, in about a minute; legacy dev matches `prepassb`.
+    - Found on the way: `check-filedir.sh` stopped silently on an empty or comments-only known list (`grep` under
+      `pipefail`); fixed in the repository, so the next build's ops image carries it. Pass B is unaffected: its known
+      list isn't empty.
   - a rollback at **every** checkpoint (CP1, CP2, CP3), ending in exactly the recorded state;
   - a rollback with **new PHP down**, with **new Postgres down**, and after a **failed Helm rollout** (S13; the old site's
     return must not need the new site);
