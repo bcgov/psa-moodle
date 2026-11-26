@@ -1727,6 +1727,18 @@ created with `--internal`, so it has no route to the internet.
     where legacy runs Redis with Sentinel on 5 nodes. **Open question for the owner and the next review:** accept that,
     or run Valkey with a replica and Sentinel before prod. The php and web budgets (`maxUnavailable: 1`) allow evicting
     dev's only pod, which is right for dev and harmless at 2 or more replicas.
+    **Alerts fired on purpose (owner-approved):** a backup run with a zero drain limit paused, reopened at once and
+    emailed "drain limit reached: skipped tonight"; the pair-age watch with zero-day thresholds emailed its ESCALATE
+    message. Both reached the owner through the ops jobs' SMTP rule (relay: "Queued mail for delivery"); the site
+    stayed open.
+    **Writer fence, full shutdown and their reverses (owner-approved), quota in each state (requests, CPU / memory):**
+    normal 2,331m / 6,760 MiB. `writer-fence.sh` (58 s): every `verify-fenced.sh` check passed, the temporary Route
+    served the maintenance page; 1,981m / 5,928 MiB. `full-shutdown.sh`: Postgres stopped with both volumes kept
+    (storage unchanged), still fenced; 1,480m / 4,072 MiB. `full-start.sh` (86 s): primary ready, fence lifted, site
+    back; 2,331m / 6,760 MiB, the normal figure exactly; CronJobs resumed, the outbound guard still on, and legacy dev
+    matching its capture. One script defect: `full-shutdown.sh` counted the operator's finished backup-Job pods, which
+    keep the cluster label, as Postgres pods still running, so it reported a timeout although Postgres had stopped;
+    it now counts live pods only.
     Earlier attempts each found a defect, fixed before the next: `oc` missing on the runner; pasted variables breaking
     the render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning`; the empty reviewer
     list. Still to fix with the next images: the `X-PSA-Stack` header (C12) isn't set, and the responses expose

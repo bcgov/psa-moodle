@@ -19,7 +19,9 @@ pg=$(oc get postgrescluster -n "$NS" -l "app.kubernetes.io/instance=$REL" -o jso
 log "stopping Postgres ($pg)"
 helm upgrade "$REL" "$CHART" -n "$NS" --reuse-values --set postgres.shutdown=true
 for _ in $(seq 1 120); do
-  n=$(oc get pods -n "$NS" -l "postgres-operator.crunchydata.com/cluster=$pg" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+  # Live pods only: the operator's finished backup Jobs keep their pods, with the same cluster label (Pass A, 2026-11-26).
+  n=$(oc get pods -n "$NS" -l "postgres-operator.crunchydata.com/cluster=$pg" \
+        --field-selector=status.phase!=Succeeded,status.phase!=Failed --no-headers 2>/dev/null | wc -l | tr -d ' ')
   [ "$n" = 0 ] && break
   sleep 5
 done
