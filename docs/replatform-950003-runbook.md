@@ -1176,6 +1176,20 @@ which happens as its own approved step.
   folder), image digests (pulled and saved), and a read-only copy of the `moodle-app-data` code PVC. The result is private
   and checksummed.
 
+  *Written and run 2026-11-25 on legacy dev (read-only, 2 minutes, 597 MB):*
+  - **Manifests** of 15 kinds as `oc apply`-ready JSON, the new stack's Helm objects left out. Dev: 21 Services,
+    40 ConfigMaps, 14 PVCs, 8 NetworkPolicies, 4 ImageStreams, 3 BuildConfigs, and the rest.
+  - **Images:** all 10 running digests recorded. The namespace's own php, web and cron images were copied by digest with
+    `skopeo` (`dir:`), and the script checks that each manifest's sha256 equals the running digest. The copied php
+    image loads and runs (PHP 8.3.37). Images from Artifactory (Galera, Redis, backup) are recorded by digest only.
+  - **Secrets:** names and keys only; values only with `--with-secret-values`.
+  - **Code:** `/var/www/html` from a running php pod, 29,741 files, hashed in the pod and checked against the copy. It
+    includes the `config.php` mounted over it, so the package holds credentials and stays private (S9).
+  - The `SHA256SUMS` check passes, and the folder is owner-only and read-only.
+
+  *Still open:* the restart proof in legacy dev (§8.4; a cluster change, needs approval), and the test and prod
+  packages, taken close to their windows (§10, §11).
+
 **Return (D3, RB13)**
 - `bailout-dump-check.sh`: accepts only a single-database `mariadb-dump`, without `--databases`. It rejects `USE`,
   `CREATE DATABASE`, `DROP DATABASE` and any statement naming another schema. It reports the table count and checksums.
