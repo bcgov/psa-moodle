@@ -3,10 +3,11 @@
 > **Status: DRAFT v1.1, 2026-11-26.** Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done. v1.1 answers
 > the eighth review ([replatform-950003-v10-review.md](replatform-950003-v10-review.md), V1001–V1014, §0.9): every
 > finding is fixed in code and tested locally; the parts only a cluster can prove are listed for Pass A and Pass B.
-> On a cluster, only two owner-approved changes have been made, both in legacy **950003-dev** (§8.3).
-> On a cluster, only two owner-approved changes have been made, both in legacy **950003-dev**: its missing `redis-proxy`
-> Service restored, and the recovery-package restart proof (§8.3). **Nothing has been deployed into any 950003 namespace,
-> and no step of this runbook has changed test or prod.**
+> **Phase 2 has started in 950003-dev: Pass A's empty install is running beside legacy** (2026-11-26, §9). Every
+> cluster change so far was owner-approved, and all of it is in **950003-dev**: legacy's missing `redis-proxy` Service
+> restored and the recovery-package restart proof (§8.3); two unmounted 2021 PVCs deleted; the `psa-moodle-deployer`
+> account; and the Pass A release, installed on the fifth attempt after four failed ones were each undone, with legacy
+> dev matching its capture every time (§9). **No step of this runbook has changed test or prod.**
 > v0.2 answered the first review ([replatform-950003-review.md](replatform-950003-review.md), R1–R12, §0).
 > v0.3 added facts from the 2026-11-18 prod mojibake window (§0.1).
 > v0.4 answered the second review ([replatform-950003-rollback-review.md](replatform-950003-rollback-review.md),
@@ -403,7 +404,10 @@ fourteen findings and the backup-alert correction on 2026-11-26. Every fix was t
 - **Kubernetes API address for the ops rule:** legacy's logs show pods dialling the API at `142.34.194.119:6443`; Pass A
   confirms it, then `kubeApiCidr` narrows to that address and the unused port is dropped.
 
-### Still open before Pass A
+### Still open in Pass A (2026-11-26)
+- The remaining Pass A exercises (§9), each by the owner's approval: the moodledata backup run by hand as the restricted
+  role (its API port, the real pgBackRest gate, alerts), the integrity check, a restore drill with an explicit target
+  (C7), pod-kill and PDBs, alerts fired on purpose, and the writer fence and full shutdown with their reverses.
 - **Test and prod** get the same setup later, each by its own approval (their environments, deployer accounts and
   tokens). Owner setup items from §0.8 not covered above: GitHub environments with required reviewers, their secrets and variables
   (now including `PUBLIC_WWWROOT`); and in this repository the secrets `ARTIFACTORY_USERNAME` and
@@ -1686,7 +1690,10 @@ created with `--internal`, so it has no route to the internet.
     count them in prod's quota (D1). Collation (RB08): `en_US.utf-8`, ctype `en_US.utf-8`, UTF8, PostgreSQL 15.15.
     **Egress, live (C15):** from the php pod, the internet (`www.google.com:443`), the SSO server
     (`loginproxy.gov.bc.ca:443`), the SMTP relay, legacy's Galera (`mariadb-galera:3306`) and the Kubernetes API
-    (`142.34.194.119:6443`) all time out; Postgres, Valkey and DNS work.
+    (`142.34.194.119:6443`) all time out; Postgres, Valkey and DNS work. **First pgBackRest backup:** full backup
+    `20261126-045042F` (276 s, 5 MiB, empty site). Crunchy's first backup Job failed three times on its start-up race
+    (`hash ... does not match local hash`: the repo host's configuration hadn't caught up yet) and succeeded on its
+    fourth attempt, about 8 minutes after creation; expect this on every new cluster.
     Earlier attempts each found a defect, fixed before the next: `oc` missing on the runner; pasted variables breaking
     the render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning`; the empty reviewer
     list. Still to fix with the next images: the `X-PSA-Stack` header (C12) isn't set, and the responses expose
