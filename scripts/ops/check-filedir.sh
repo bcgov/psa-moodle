@@ -16,7 +16,9 @@ FILEDIR=${1:?filedir}; REF=${2:?referenced.tsv}; KNOWN=${3:-/dev/null}
 if command -v sha1sum >/dev/null; then sha1() { sha1sum "$@"; }; else sha1() { shasum -a 1 "$@"; }; fi
 if stat -c %s /dev/null >/dev/null 2>&1; then size() { stat -c %s "$1"; }; else size() { stat -f %z "$1"; }; fi
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
-grep -v '^\s*#' "$KNOWN" | awk 'NF {print $1}' | sort -u > "$work/known"
+# `|| true`: grep exits 1 when every line is a comment or the list is empty, which pipefail would turn into a silent
+# exit (Pass B, 2026-11-26).
+{ grep -v '^\s*#' "$KNOWN" || true; } | awk 'NF {print $1}' | sort -u > "$work/known"
 
 total=0; ok=0; : > "$work/missing"; : > "$work/size"; : > "$work/sha1"; : > "$work/inconsistent"; : > "$work/present"
 while IFS=$'\t' read -r h min max; do
