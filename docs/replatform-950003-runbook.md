@@ -2127,6 +2127,15 @@ created with `--internal`, so it has no route to the internet.
     - Found on the way: `check-filedir.sh` stopped silently on an empty or comments-only known list (`grep` under
       `pipefail`); fixed in the repository, so the next build's ops image carries it. Pass B is unaffected: its known
       list isn't empty.
+  - ***Local dry run, 2026-11-26*** (pre-window dump; laptop, no cluster change): `local-pipeline.sh dev all` first
+    **stopped before any change**: `version-compare.php` compared versions as text, and legacy dev's `2024100715`
+    (database) against `2024100715.00` (code) differed only in form. Fixed to compare decimal values (prod's `.04` and
+    test's `.03` had matched by luck of formatting). Rerun: 289 s; every version matches (455 plugins);
+    `local_githubsync` uninstalled on the copy with only documented changes; `tool_dbtransfer` 247 s; **row counts
+    identical, 511 tables, 1,054,418 rows**; `compare-local.sh dev forward`: only the expected differences (D6's three
+    tables, `log_display`).
+  - **Window 1's plan:** [passb-window-1.md](passb-window-1.md): forward through CP1–CP3, then the CP3 rollback, after
+    E4 and the Q17 repair of legacy dev.
   - a rollback at **every** checkpoint (CP1, CP2, CP3), ending in exactly the recorded state;
   - a rollback with **new PHP down**, with **new Postgres down**, and after a **failed Helm rollout** (S13; the old site's
     return must not need the new site);
