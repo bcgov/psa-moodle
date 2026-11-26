@@ -1,6 +1,7 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v1.0 for review, 2026-11-26.** Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done.
+> **Status: DRAFT v1.0 for review, 2026-11-26.** Phase 0 (read-only, 2026-11-18) is done. Phase 1's local work is done
+> **except the tools listed as missing in §0.8** (a check on 2026-11-26 found them specified here but not yet written).
 > On a cluster, only two owner-approved changes have been made, both in legacy **950003-dev**: its missing `redis-proxy`
 > Service restored, and the recovery-package restart proof (§8.3). **Nothing has been deployed into any 950003 namespace,
 > and no step of this runbook has changed test or prod.**
@@ -303,6 +304,16 @@ evidence (dumps, logs, packages) is under `~/Moodle/private-backups/` (S9).
   1.30.x stable line.
 
 ### Still open before Phase 2
+- **Tools this runbook specifies that don't exist yet** (found 2026-11-26 by checking every file it names against the
+  repository; an earlier draft of v1.0 called Phase 1's local work done):
+  - for the cutover and file copy: `expected-differences.md`, `referenced-files.sql`, `moodledata-copy-job.yaml`,
+    `dataroot-inventory.md` and `check-filedir` (§8.3);
+  - for the review and commit point: `restrict-routes.sh` / `unrestrict-routes.sh` and `reviewer-write-check.sql` (S15);
+  - for fencing: `full-shutdown.sh` / `full-start.sh` (S13);
+  - for a return: `quiescence-pg.sql` and `elm-reconcile.md` (§14).
+
+  `frozen-checksums.sql` exists as `frozen-checksums.sh`, and `compare-content.sh` as `compare-content.php` with
+  `compare-local.sh`.
 - **Owner setup:** GitHub environments `950003-dev`, `950003-test` and `950003-prod` with required reviewers, and their
   secrets and variables (§8.1 C13); the 950003 image registry (`EXACT_REGISTRY_REPO`) and its push credentials.
 - **Backup checks that need a cluster:** the V801 sequence with live file activity, a killed run's clean-up, and the
