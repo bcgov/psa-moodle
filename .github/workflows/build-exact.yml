@@ -84,10 +84,34 @@ jobs:
         run: |
           echo "${{ secrets.ARTIFACTORY_PASSWORD }}" | \
             podman login "$REGISTRY" --username "${{ secrets.ARTIFACTORY_USERNAME }}" --password-stdin
-          podman push --digestfile php.digest "${{ steps.names.outputs.php }}"
-          podman push --digestfile web.digest "${{ steps.names.outputs.web }}"
-          podman push --digestfile cron.digest "${{ steps.names.outputs.cron }}"
-          podman push --digestfile ops.digest "${{ steps.names.outputs.ops }}"
+          # Artifactory sometimes refuses connections from runners mid-push (seen 2026-11-26, recovered on a rerun):
+          # retry each image with backoff before failing.
+          push() {
+            for attempt in 1 2 3 4; do
+              podman push --retry 3 --digestfile "$1.digest" "$2" && return 0
+              echo "::warning::push of $1 failed (attempt $attempt); retrying in $((attempt * 30)) s"
+              sleep $((attempt * 30))
+            done
+            return 1
+          }
+          push php "${{ steps.names.outputs.php }}"
+          push web "${{ steps.names.outputs.web }}"
+          push cron "${{ steps.names.outputs.cron }}"
+          push ops "${{ steps.names.outputs.ops }}"
+          jq -n --arg env "${{ inputs.environment }}" --arg version "${{ steps.names.outputs.version }}" \
+            --arg commit "$(git rev-parse HEAD)" --arg repo "$REGISTRY/$REGISTRY_REPO" \
+            --arg php "$(cat php.digest)" --arg web "$(cat web.digest)" --arg cron "$(cat cron.digest)" --arg ops "$(cat ops.digest)" \
+            '{environment: $env, moodle_version: $version, commit: $commit, repository: $repo,
+              digests: {php: $php, web: $web, cron: $cron, ops: $ops}}' > digests.json
+          echo "digests (deploy-950003 inputs):"; jq -r '.digests | to_entries[] | "  \(.key)_digest: \(.value)"' digests.json
+
+      - name: Save the digests
+        if: steps.creds.outputs.have == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ inputs.environment }}
+          path: digests.json
+          retention-days: 90
 
       - name: Summary
         run: |

@@ -387,8 +387,25 @@ fourteen findings and the backup-alert correction on 2026-11-26. Every fix was t
 - **First pull through `m950-learning` is checked in Pass A** (Valkey's path through the project's Docker Hub proxy
   mirrors legacy's own `m950-learning/bitnamilegacy/...` images).
 
+### Pass A setup, done 2026-11-26 (owner-approved)
+- **Artifactory push credentials:** this repository's `ARTIFACTORY_USERNAME` and `ARTIFACTORY_PASSWORD` come from the
+  platform-managed account `default-950003-gtjsbf` (Archeobot; Secret `950003-tools/artifacts-default-grisnb`), piped
+  from the cluster into GitHub without being displayed. **If Archeobot rotates the account** (a new `artifacts-default-*`
+  "plate"), copy it again the same way; `build-exact`'s push fails loudly until then.
+- **Deploy account for dev:** ServiceAccount `psa-moodle-deployer` in `950003-dev` with RoleBinding
+  `psa-moodle-deployer-admin` (ClusterRole `admin`, this namespace only; legacy's deploy accounts have `edit`, which
+  can't create the chart's Roles and RoleBindings) and token Secret `psa-moodle-deployer-token`. Checked: it can create
+  every kind the chart renders in dev, and nothing in test. Undo: delete those three objects.
+- **GitHub environment `950003-dev`:** required reviewer the owner; deploys only from `main`; secrets `OPENSHIFT_SERVER`
+  and `OPENSHIFT_TOKEN` (the deployer's token, piped); variables `NAMESPACE`, `ALERT_TO`, `ROUTE_ALLOWED_SOURCES` (the
+  owner's current address; the BC Gov VPN range to be added once read from a VPN connection), `PUBLIC_WWWROOT` and
+  `FENCE_SERVICE=maintenance-message`. `REVIEWER_ADMINS` is unset for Pass A (an empty install).
+- **Kubernetes API address for the ops rule:** legacy's logs show pods dialling the API at `142.34.194.119:6443`; Pass A
+  confirms it, then `kubeApiCidr` narrows to that address and the unused port is dropped.
+
 ### Still open before Pass A
-- **Owner setup** (unchanged from §0.8): GitHub environments with required reviewers, their secrets and variables
+- **Test and prod** get the same setup later, each by its own approval (their environments, deployer accounts and
+  tokens). Owner setup items from §0.8 not covered above: GitHub environments with required reviewers, their secrets and variables
   (now including `PUBLIC_WWWROOT`); and in this repository the secrets `ARTIFACTORY_USERNAME` and
   `ARTIFACTORY_PASSWORD` for an Artifactory account that can push to `m950-learning` (`moodle-nginx`'s
   `ARTIFACTORY_USER` and `ARTIFACTORY_PASSWORD` are one). Then run `build-exact` for prod (Pass A uses the prod build).
@@ -2129,6 +2146,7 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-26 | Legacy dev's backup PVCs: keep the three in use (its own nightly backups); the two unmounted ones (`db-backup-data`, `db-backup-verification`) inspected read-only and deleted, 6 GiB freed | Owner |
 | 2026-11-26 | 950003 image home: Artifactory `m950-learning/psa-moodle` (legacy's project; its pull secret is in all three namespaces); every 950003 image by digest, ops included; Valkey 7.2.16 through the same project | Owner |
 | 2026-11-26 | php-fpm metrics sidecar off in 950003: its only image is unmaintained and carries CRITICAL CVEs | Owner |
+| 2026-11-26 | Pass A setup approved and done: Artifactory credentials copied from the platform-managed account into the repository secrets; `psa-moodle-deployer` (admin in `950003-dev` only) and its token; GitHub environment `950003-dev` with the owner as required reviewer | Owner |
 
 **Phase 0 findings (2026-11-18):** see [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md).
 The facts that change the plan are folded into §5 and §6.
