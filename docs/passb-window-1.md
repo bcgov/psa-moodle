@@ -43,9 +43,9 @@ it, and through a return (§14). Test and prod are not touched.
 | T+15 | **File delta** | `referenced-files.sql` against the final dump's local copy; the read-only check Job for legacy's own missing files; then `rp-moodledata-copy` again, which resumes | "complete and verified", 0 unexpected missing | Delete the Job and the ConfigMap |
 | T+20 | **Local pipeline** | `local-pipeline.sh dev start-mariadb`, `load` (the final dump), `all`; `compare-local.sh dev forward` | Only the expected differences (D6's 3 tables, `log_display`) | n/a (local) |
 | **CP1** | **Go/no-go: is the data correct?** | | | No-go: §13.4 |
-| T+30 | **Load:** the Postgres dump into the new primary | `oc -n $NS exec -i $PG -c database -- pg_restore --no-owner --role=moodle --exit-on-error --single-transaction -d moodle < $RUN/dev-postgres-*.dump`; then `backup-role-grants.sql` through `psql -v ON_ERROR_STOP=1` | Per-table row counts equal the local Postgres's (511 tables); the referenced list from the new database equals the final dump's | Drop and recreate the database `moodle`; then §13.4 |
+| T+30 | **Load:** the Postgres dump into the new primary | `oc -n $NS exec -i $PG -c database -- pg_restore --no-owner --role=moodle --exit-on-error --single-transaction -d moodle < $RUN/dev-postgres-*.dump`; then `backup-role-grants.sql` through `psql -X -v ON_ERROR_STOP=1 -v backup_role=moodle-backup` | Per-table row counts equal the local Postgres's (511 tables); the referenced list from the new database equals the final dump's | Drop and recreate the database `moodle`; then §13.4 |
 | T+35 | **`deploy-950003` `precommit`**, `site_host=temporary`, overlay `dev-pass-b`, the same digests | Workflow (gate) | Version check passes; the guard is on; `configure-cache.php --check` passes | §13.4 |
-| T+45 | On the new site, as §13.2: web maintenance; **clear sessions**; purge caches; the search index if global search is on; `encryption-canary.php create`; P4's password for id 2 | `oc -n $NS exec deploy/$R-php -- php admin/cli/maintenance.php --enableold`; `psql -c 'DELETE FROM mdl_sessions'`; `php admin/cli/purge_caches.php`; `php admin/cli/reset_password.php --username=admin` (the owner types the password) and the owner's email set on id 2 (copy only) | No sessions; the canary decrypts | n/a |
+| T+45 | On the new site, as §13.2: web maintenance; **clear sessions**; purge caches; the search index if global search is on; `encryption-canary.php create` (run with `MOODLE_ROOT=/var/www/html`); P4's password for id 2 | `oc -n $NS exec deploy/$R-php -- php admin/cli/maintenance.php --enableold`; `psql -c 'DELETE FROM mdl_sessions'`; `php admin/cli/purge_caches.php`; `php admin/cli/reset_password.php --username=admin` (the owner types the password) and the owner's email set on id 2 (copy only) | No sessions; the canary decrypts | n/a |
 | T+50 | Reviewer checks through the temporary Route (restricted since creation) | The owner, as id 2 | `X-PSA-Stack: psa-moodle` on every response; the phone on cellular is refused | n/a |
 | **CP2** | **Go/no-go: does the new site work for admins?** | | | §13.4 |
 | T+60 | Route undo patches from `passb1-precutover`'s YAML, into `$RUN`. **`deploy-950003` `review`**, `site_host=public` | Workflow (gate) | Its review checks pass: HTTPS policy present, no app SMTP policy, cron 0 | `helm rollback` |
@@ -58,8 +58,14 @@ it, and through a return (§14). Test and prod are not touched.
 |---|---|---|
 | 1. **Writer fence**, Route first | `writer-fence.sh $NS $R chart/psa-moodle maintenance-message moodle-web` (it points `moodle-web` at the fence, then the fenced profile, then `verify-fenced.sh`) | `FENCED`; no hostname returns `X-PSA-Stack` |
 | 2. Legacy dependencies | Sentinel reports a master and quorum; `redis-proxy`, legacy `php` and `web` are ready | All hold |
-| 3. **Separate approval at the time:** restore legacy dev exactly | `RESTORE_SCOPE=all state-restore.sh $NS passb1-precutover --apply` (maintenance off, cron 1, `moodle-web` back on `web` and unrestricted) | `state-restore.sh … passb1-precutover` reports a match; the legacy login page serves (200, no `X-PSA-Stack`) |
+| 3. **Separate approval at the time:** restore legacy dev exactly | `RESTORE_SCOPE=all state-restore.sh $NS passb1-precutover psa-moodle --apply` (dry-run first; the release name keeps it off the new stack's Deployments) (maintenance off, cron 1, `moodle-web` back on `web` and unrestricted) | `state-restore.sh … passb1-precutover` reports a match; the legacy login page serves (200, no `X-PSA-Stack`) |
 | 4. Record | Timings per step in the window log; the next run's latest-abort time from them | |
 
 The new stack stays installed and fenced with the loaded copy. Before the next Pass B run, the copy is discarded:
 drop and recreate the database, or uninstall the release with its volumes. Each is its own approval.
+
+## Result (2026-11-26)
+Run: forward to CP3 and the CP3 rollback, 72 minutes; legacy dev restored exactly. Results, defects and lessons are in
+the runbook (§9, Pass B, "Window 1 ran"). Lessons for run 2: don't change the reviewer account's email (the issuer
+auto-links SSO identities by email); start the write check after the last planned CLI step; run every step under bash
+and log only on a zero exit status.

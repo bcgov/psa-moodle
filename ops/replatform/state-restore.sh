@@ -148,7 +148,9 @@ in_scope routes && while read -r route; do
   name=$(jq -r .metadata.name <<< "$route")
   live=$(oc get route "$name" -n "$NS" -o json 2>/dev/null | jq -c 'del(.status, .metadata.resourceVersion, .metadata.uid,
     .metadata.creationTimestamp, .metadata.generation, .metadata.managedFields)' || true)
-  cmp() { jq -S '{spec, annotations: (.metadata.annotations // {} | del(.["openshift.io/host.generated"])), labels: (.metadata.labels // {})}'; }
+  # Ignore kubectl's last-applied-configuration: `oc replace` rewrites it whenever it exists, so a restored Route could
+  # never compare equal (Pass B window 1, 2026-11-26). It is tooling bookkeeping, not routing.
+  cmp() { jq -S '{spec, annotations: (.metadata.annotations // {} | del(.["openshift.io/host.generated"], .["kubectl.kubernetes.io/last-applied-configuration"])), labels: (.metadata.labels // {})}'; }
   if [ -z "$live" ] || [ "$(cmp <<< "$route")" != "$(cmp <<< "$live")" ]; then
     echo "$route" > "$TMP/route-$name.json"
     if [ -z "$live" ]; then

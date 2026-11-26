@@ -2136,6 +2136,51 @@ created with `--internal`, so it has no route to the internet.
     tables, `log_display`).
   - **Window 1's plan:** [passb-window-1.md](passb-window-1.md): forward through CP1–CP3, then the CP3 rollback, after
     E4 and the Q17 repair of legacy dev.
+  - ***Window 1 ran 2026-11-26, 20:33–21:45 UTC (72 minutes; owner-approved as a set; the owner made every checkpoint
+    call and approved each gate in chat).*** P1 (dev monitor to 0), P2 (Q17: `moodle-web` back on `web`; legacy dev
+    serves its login page) and P3 (`passb1-ready`) first.
+    - **Freeze:** E1 (503 on the public URL), drain, E2, quiescence (`wsrep_last_committed` unchanged for 5 min, 0
+      application connections on all 5 nodes). **Final dump: 713 of 713 tables identical to the live frozen database**
+      (1,062,091 rows).
+    - **To CP1** (42 min, including 10 lost to an operator slip): file delta verified (6,120 intact, the 1,399 known
+      gaps, 0 unexpected); local conversion 204 s, every version matching, **511 tables and 1,055,722 rows
+      identical**; only the expected differences. **CP1: GO.**
+    - **To CP2:** `pg_restore` 9 s, **511 of 511 tables identical** to the local copy, all owned by `moodle`; file
+      references identical (7,519); backup role grants checked; `precommit` deploy (run 45897274346): version check,
+      guard and cache mapping all pass (application and session caches on Valkey, first live proof of §0.12); web
+      maintenance, sessions cleared, caches purged, search index, canary decrypts. The owner logged in as the copy's
+      `admin`. **CP2: GO.**
+    - **To CP3:** `review` deploy (run 45898735232; its checks pass); `moodle-web` restricted and repointed (E3);
+      the public hostname served the new stack to the owner and **refused the phone on cellular**; **SSO signed in**
+      (twice). Caveat: SSO mapped the owner to `admin`, because P4 had set `admin`'s email to the owner's and the
+      issuer auto-links by email (`requireconfirmation=0`); a plain user's SSO login is run 2's check. The write check
+      found only the operator's own planned step. **CP3: GO on the evidence, no-go by plan.**
+    - **CP3 rollback, 2 minutes:** writer fence 10 s (`FENCED`, no hostname reaches the new stack); legacy dependencies
+      hold (5 Sentinels with quorum, `redis-proxy`, `php`, `web`); `state-restore.sh … passb1-precutover psa-moodle
+      --apply` 7 s; **legacy dev matches `passb1-precutover` exactly** and serves its own login page.
+    - **Defects found and fixed** (each in its own commit):
+      - `moodledata-copy.sh` refused legacy's `climaintenance.html`, which E1 creates at every freeze, so every real
+        final copy would have failed. Allowed and never copied. This window ran the fixed scripts from the Job's
+        ConfigMap, a logged deviation that took two mechanical retries; the next build carries the fix.
+      - `version-compare.php` compared versions as text (`2024100715` against `2024100715.00`); found by the dry run.
+      - `check-filedir.sh` stopped silently on an empty known list; found by the pre-copy.
+      - `deploy-950003`'s verify step ran `oc wait` before Crunchy had created the primary.
+      - `state-restore.sh` could never confirm a restored Route, because `oc replace` rewrites
+        `last-applied-configuration`; it now ignores that annotation.
+      - The plan omitted `state-restore.sh`'s release argument (without it, it would patch the new stack's own
+        Deployments), `backup-role-grants.sql`'s `-v backup_role`, and the canary's `MOODLE_ROOT`. The plan and §13.4
+        are corrected.
+    - **Facts learned:**
+      - Moodle 4.5's `maintenance.php --enable` also writes `maintenance_enabled='cli mode'`, so the copy arrives in
+        maintenance and `--disable` resets it.
+      - `reviewer-write-check.sql` counts the operator's own CLI steps (user 0): reconcile them against the window log,
+        or start the check after the last planned CLI step.
+      - The issuer auto-links SSO identities to accounts by email; in test and prod, `admin` carries a former
+        colleague's email.
+    - **Operator slips** (all corrected in the window log): zsh word splitting (two steps logged as done that hadn't
+      run), a drain loop that couldn't recognise zero, and a misread grouped count.
+    - **Next:** the new stack stays fenced with the loaded copy. Before run 2: a build with the fixes, then discard the
+      copy (separate approval). Run 2 goes through the commit point and a return (§14), and checks a plain user's SSO.
   - a rollback at **every** checkpoint (CP1, CP2, CP3), ending in exactly the recorded state;
   - a rollback with **new PHP down**, with **new Postgres down**, and after a **failed Helm rollout** (S13; the old site's
     return must not need the new site);
@@ -2450,7 +2495,9 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
    - move legacy to web maintenance **behind that restriction** (S14).
 
    SSO works because these are the registered hostnames.
-4. **Separate approval: `RESTORE_SCOPE=all state-restore.sh precutover` (S14).** It restores, exactly as captured and without the restriction:
+4. **Separate approval: `RESTORE_SCOPE=all state-restore.sh <ns> precutover psa-moodle --apply` (S14).** Name the release
+   (`psa-moodle`): without it the script would also patch the new stack's own Deployments, which Helm and the fence own
+   (Pass B window 1). Dry-run first. It restores, exactly as captured and without the restriction:
    - maintenance mode (prod: off; test: whatever was recorded, possibly web maintenance);
    - cron replicas;
    - both Routes.
