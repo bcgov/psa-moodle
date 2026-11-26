@@ -123,6 +123,8 @@ valkey:
 
 # --- Postgres (Crunchy Postgres for Kubernetes) --------------------------------
 postgres:
+  # true stops every Postgres pod (data kept): only through full-shutdown.sh, never by hand (S13).
+  shutdown: false
   # Crunchy's PostgresCluster CR.
   postgresVersion: 15
   # Operator's default Postgres image; override only if BC Gov mirrors it.

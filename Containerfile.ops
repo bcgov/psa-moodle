@@ -20,7 +20,7 @@ ARG TARGETARCH
 RUN apk add --no-cache \
       bash curl jq ca-certificates \
       perl perl-net-ssleay \
-      tini \
+      tini rsync \
       postgresql-client \
  && arch="${TARGETARCH:-amd64}" \
  && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" \

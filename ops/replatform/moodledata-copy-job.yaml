@@ -1,0 +1,79 @@
+# moodledata copy Job (runbook O1, RB07, §13.2, §14.4). CHANGES THE CLUSTER: each run needs the owner's approval.
+#
+# Runs scripts/ops/moodledata-copy.sh in the ops image: legacy's moodle-data PVC mounted READ-ONLY at /src, the new
+# stack's moodledata PVC at /dst, the hash lists from a ConfigMap at /list. No network access is needed or used.
+#
+#   1. Lists (private run folder), from the final dump and a read-only check of legacy's own filedir (expected-differences.md):
+#        sed 's/{PREFIX}//' scripts/ops/referenced-files.sql | <mariadb on the dump's copy> > referenced.tsv
+#        known-missing.txt  (check-filedir.sh's unexpected list for legacy itself)
+#      The ConfigMap limit is 1 MiB: prod's list is about 480 KB (8,772 hashes, 2026-11).
+#   2. oc -n "$NAMESPACE" create configmap rp-moodledata-copy-list --from-file=referenced.tsv --from-file=known-missing.txt
+#   3. NAMESPACE=950003-<env> TARGET_PVC=psa-moodle-moodledata OPS_IMAGE=<registry>/psa-moodle/ops@sha256:<digest> \
+#        envsubst '$NAMESPACE $TARGET_PVC $OPS_IMAGE' < ops/replatform/moodledata-copy-job.yaml | oc apply -f -
+#   4. oc -n "$NAMESPACE" logs -f job/rp-moodledata-copy     # ends "moodledata copy complete and verified"
+#   Re-run after a failure: delete the Job (not the PVC) and apply again; the copy resumes.
+#   Undo: oc -n "$NAMESPACE" delete job/rp-moodledata-copy configmap/rp-moodledata-copy-list. The target PVC belongs to
+#   the release (its undo is Pass A's or §13.4's).
+#
+# Labels are distinct from every legacy and release selector (check with check-collisions.sh). No runAsUser: the pod gets
+# the namespace's UID, the same UID legacy's php runs as, which is what makes secret/key/sodium.key (0400) readable.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rp-moodledata-copy
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: rp-moodledata-copy
+    app.kubernetes.io/part-of: replatform-950003
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rp-moodledata-copy
+        app.kubernetes.io/part-of: replatform-950003
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: copy
+          image: ${OPS_IMAGE}
+          command: ["/usr/local/bin/moodledata-copy.sh"]
+          env:
+            - {name: SRC, value: /src}
+            - {name: DST, value: /dst}
+            - {name: LIST, value: /list/referenced.tsv}
+            - {name: KNOWN, value: /list/known-missing.txt}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: legacy, mountPath: /src, readOnly: true}
+            - {name: target, mountPath: /dst}
+            - {name: list, mountPath: /list, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: legacy
+          persistentVolumeClaim:
+            claimName: moodle-data
+            readOnly: true
+        - name: target
+          persistentVolumeClaim:
+            claimName: ${TARGET_PVC}
+        - name: list
+          configMap:
+            name: rp-moodledata-copy-list
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

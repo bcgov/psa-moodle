@@ -1,7 +1,7 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v1.0 for review, 2026-11-26.** Phase 0 (read-only, 2026-11-18) is done. Phase 1's local work is done
-> **except the tools listed as missing in §0.8** (a check on 2026-11-26 found them specified here but not yet written).
+> **Status: DRAFT v1.0 for review, 2026-11-26.** Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done.
+> Nine tools this runbook specified were found missing on 2026-11-26 and written and tested locally the same day (§0.8).
 > On a cluster, only two owner-approved changes have been made, both in legacy **950003-dev**: its missing `redis-proxy`
 > Service restored, and the recovery-package restart proof (§8.3). **Nothing has been deployed into any 950003 namespace,
 > and no step of this runbook has changed test or prod.**
@@ -246,7 +246,7 @@ decisions. The prod quota draft's figures are unchanged; its wording was updated
 | V803 `Forbid` isn't a global lock | One owner per run: a Postgres advisory lock on the job's own session, held throughout and checked before every change. Per-run staging folders, removed by another run only after the Job's deadline has passed. The manifest is staged with the files and published by one rename. Dev tests two runs together and a killed owner. | C8, §8.4, §9 |
 | V804 the database half isn't verified before publishing | Publication waits until the repository shows archived WAL through the restore point on the recorded timeline, and a base backup that finished before it. The manifest records the database system identifier, timeline, base backup label, and restore-point name and LSN; `restore-paired.sh` enforces them. Dev rehearses delayed archiving, Postgres down, and a failover between sets. | C6, C8, §8.3, §9 |
 | V805 legacy dev runs 4.5.15; test and prod run 4.5.11+ | J3: an explicit matrix of legacy code, source database, conversion runtime and image for every rehearsal. No step returns a database to other code, and legacy dev's database is never downgraded. | §8.2, §9 |
-| V806 enduring tooling sat in a directory deleted after Phase 5 | Backup and restore tooling lives in `ops/backup/`, which stays. `ops/replatform/` is deleted only after a restore using the retained tooling alone. | §8.3, §12 |
+| V806 enduring tooling sat in a directory deleted after Phase 5 | Backup and restore tooling lives in `scripts/ops/`, which stays. `ops/replatform/` is deleted only after a restore using the retained tooling alone. | §8.3, §12 |
 
 Also in v0.9:
 - live facts the reviewer read on 2026-11-25: dev's free CPU (§5.4), Galera in all three environments, legacy dev's 4.5.15
@@ -304,16 +304,16 @@ evidence (dumps, logs, packages) is under `~/Moodle/private-backups/` (S9).
   1.30.x stable line.
 
 ### Still open before Phase 2
-- **Tools this runbook specifies that don't exist yet** (found 2026-11-26 by checking every file it names against the
-  repository; an earlier draft of v1.0 called Phase 1's local work done):
-  - for the cutover and file copy: `expected-differences.md`, `referenced-files.sql`, `moodledata-copy-job.yaml`,
-    `dataroot-inventory.md` and `check-filedir` (§8.3);
-  - for the review and commit point: `restrict-routes.sh` / `unrestrict-routes.sh` and `reviewer-write-check.sql` (S15);
-  - for fencing: `full-shutdown.sh` / `full-start.sh` (S13);
-  - for a return: `quiescence-pg.sql` and `elm-reconcile.md` (§14).
-
-  `frozen-checksums.sql` exists as `frozen-checksums.sh`, and `compare-content.sh` as `compare-content.php` with
-  `compare-local.sh`.
+- **Tools this runbook specified but hadn't written** (found 2026-11-26 by checking every file it names against the
+  repository; an earlier draft of v1.0 called Phase 1's local work done): **all written and tested locally the same day**
+  (§8.3). `expected-differences.md`, `referenced-files.sql`, `moodledata-copy-job.yaml` (with `moodledata-copy.sh`),
+  `dataroot-inventory.md`, `check-filedir.sh`, `restrict-routes.sh` / `unrestrict-routes.sh`, `reviewer-write-check.sql`,
+  `full-shutdown.sh` / `full-start.sh`, `quiescence-pg.sql` and `elm-reconcile.md`. The cluster-changing ones
+  (`moodledata-copy-job.yaml`, the Route scripts with `--apply`, the shutdown pair) run first in Pass A or Pass B. Two
+  names differ from earlier text: `frozen-checksums.sql` is `frozen-checksums.sh`, and `compare-content.sh` is
+  `compare-content.php` with `compare-local.sh`. Lasting tools live in `scripts/ops/` (the runbook had said `ops/backup/`).
+- **Owner question:** test's `cdata_tools/` (8 hand-run PHP scripts in moodledata, 2024): does anyone still use them?
+  They stay on legacy either way; copy them out before decommission if so.
 - **Owner setup:** GitHub environments `950003-dev`, `950003-test` and `950003-prod` with required reviewers, and their
   secrets and variables (§8.1 C13); the 950003 image registry (`EXACT_REGISTRY_REPO`) and its push credentials.
 - **Backup checks that need a cluster:** the V801 sequence with live file activity, a killed run's clean-up, and the
@@ -1173,7 +1173,7 @@ which happens as its own approved step.
 - **Trash (J2, V802):** the new stack keeps Moodle's stock trash cleanup. v0.8's `$CFG->fileslastcleanup` override is
   withdrawn, and the backup job never deletes live files (C8).
 
-### 8.3 Migration and recovery tooling (reviewed; `ops/replatform/` is deleted after Phase 5, `ops/backup/` is kept)
+### 8.3 Migration and recovery tooling (reviewed; `ops/replatform/` is deleted after Phase 5, `scripts/ops/` is kept)
 **Forward**
 - `migrate-config.php`: the source-side `config.php` for `tool_dbtransfer` (MariaDB, prefix `''`, a scratch dataroot).
 - `local-pipeline.sh`:
@@ -1204,14 +1204,37 @@ which happens as its own approved step.
   - `lang/` is copied;
   - `secret/` is copied, so values encrypted with Moodle's key stay readable;
   - quarantine folders, `muc/`, caches, sessions, temp, lock and `trashdir` are not copied.
+
+  *Written 2026-11-26:* `scripts/ops/referenced-files.sql` (a `{PREFIX}` template: none on legacy, `mdl_` on the new
+  stack), `scripts/ops/moodledata-copy.sh` (in the ops image, which now carries `rsync`),
+  `ops/replatform/moodledata-copy-job.yaml` and `ops/replatform/dataroot-inventory.md`. The inventory comes from a
+  read-only listing of all three environments, which found entries §5.3 hadn't reviewed: test's
+  `psaelmsync_apitest_state.json` (state of `local_psaelmsync`'s API test page; copied) and `cdata_tools/` (8 hand-run
+  PHP scripts from 2024 that no code reads; **Q for the owner**, kept on legacy); prod's empty `vendor/`; dev's
+  `cdata.json`, `models/` and a hash-named folder. `lang/` is **empty in prod and test**. The key is
+  `secret/key/sodium.key`, mode 0400 as Moodle creates it, so only the namespace's own UID reads it. The copy refuses an
+  unlisted top-level entry. *Tested locally* in the ops image as a non-root user, with a read-only root filesystem and
+  no capabilities, from the 25 November prod file copy mounted read-only: 8,710 files in 20 s, verified; a rerun
+  resumes; a deleted and a changed file are repaired by a rerun; a same-size, same-time corruption is not repaired by
+  `rsync` but **is** caught by `check-filedir`; an unlisted entry is refused. The Job renders and passes a client dry run
+  (legacy volume read-only, distinct labels).
 - `reverse-precheck.sh <postgres>` (RB08): finds values distinct in Postgres that would collide in a unique index under
   legacy's `utf8mb4_unicode_ci` (case- and accent-insensitive), using an ICU primary-strength collation. It reports index
   names and counts, never values. An early warning only: the reverse import stays the final check.
 - `check-filedir`: every referenced `contenthash` exists in the target with the right size, and its SHA-1 equals its name.
-  The known missing files (prod 3, test 9) are listed in `expected-differences.md`. After a restore from a nightly set, any
+  The known missing files (prod 3, test 9) are listed in `expected-differences.md`.
+
+  *Written 2026-11-26* as `scripts/ops/check-filedir.sh` (kept after Phase 5: restores use it), and
+  `ops/replatform/expected-differences.md`. **Known missing files are measured, not listed:** in each window,
+  `check-filedir` runs first against the frozen legacy's own `filedir` with the final dump's list, and the target must
+  then match that set exactly; a known-missing hash that turns up present also fails. Prod 3 and test 9 (Phase 0) are
+  the reference figures. *Tested* on the 25 November prod file copy against the untouched 18 November dump: 8,772
+  referenced, 8,710 intact (size and SHA-1), 62 missing. Those 62 are **not legacy gaps**: they were deleted, and purged
+  from `trashdir`, between the dump and the copy. The backup tests' "62 known gaps" (§8.4 item 8) are the same
+  artifact. After a restore from a nightly set, any
   gap other than the manifest's recorded source gaps is a failure.
 
-**Recovery sets (S12, V602, V603; in `ops/backup/`, kept after Phase 5, V806)**
+**Recovery sets (S12, V602, V603; in `scripts/ops/`, kept after Phase 5, V806)**
 - `recovery-set-manifest`: written by each nightly backup and by the window's recovery set. It names the database target
   (the window's backup label, or a nightly set's restore point with its timeline, base backup label and database system
   identifier), the file set and its reference inventory's count and checksum, any source gaps, the durable items, the chart
@@ -1255,12 +1278,25 @@ which happens as its own approved step.
   application Job is active, every application CronJob is suspended, and no Route reaches the new application. Run it
   after every upgrade while fenced.
 - `full-shutdown.sh` / `full-start.sh`: the writer fence plus `PostgresCluster.spec.shutdown`, and the reverse.
+  *Written 2026-11-26; to be exercised in Pass A.* `spec.shutdown` is now a chart value (`postgres.shutdown`, default
+  false), set with `helm upgrade --reuse-values`, so a later upgrade can't silently keep Postgres stopped or start it.
+  `full-shutdown.sh` waits until no pod of the cluster remains and re-runs `verify-fenced.sh`; `full-start.sh` waits for
+  a Ready primary before `writer-unfence.sh`.
 - `fence-target`: a static maintenance page the Routes can point at (legacy `maintenance-message`, or the chart's own page).
   The choice is decided and rehearsed in Pass B.
 - `restrict-routes.sh <routes> <reviewer-ips>` / `unrestrict-routes.sh` (S15, DR08, DR09): add or remove
   `haproxy.router.openshift.io/ip_whitelist` on the named Routes. Hostnames stay the same, so SSO callbacks keep working.
+  *Written 2026-11-26:* a dry run unless `--apply`. Before changing a Route, it records the current value (or its
+  absence) in a private state folder and refuses to overwrite an existing record; `unrestrict-routes.sh` puts back
+  exactly that and checks it reads back. It refuses `0.0.0.0/0` and anything that isn't an IPv4 address or CIDR.
+  *Tested:* dry runs against legacy dev's `moodle-web` (nothing changed or recorded), bad input refused, and both record
+  forms restored correctly in a dry run.
 - `reviewer-write-check.sql`: before the commit point, lists log-store write events by users outside the reviewer list.
   Expect none.
+  *Written 2026-11-26:* the acting user (`realuserid` during "log in as") must be on the list; prints a summary and the
+  other writers by id and event name only; psql exits 3 if there are any. *Tested on the local prod copy:* it found the
+  local test steps' own writes (user 0 from CLI scripts, and test users), as intended. **CLI steps in the window write as
+  user 0**, so the window log must account for each user-0 write before `0` may be added to the list.
 - `recovery-package.sh` (S8, RB09): export legacy manifests, ConfigMaps, Secret names (values only into the private
   folder), image digests (pulled and saved), and a read-only copy of the `moodle-app-data` code PVC. The result is private
   and checksummed.
@@ -1370,7 +1406,12 @@ which happens as its own approved step.
 - `quiescence-pg.sql` (RB05; **returns only**, V502): a fresh `pg_stat_activity` read, checked against an allowlist of our
   management sessions. Write counters are reported as supporting evidence only. A failure stops the return; it is never
   part of an abort.
-- `elm-reconcile.md` (DR06, V605): compares three sources over a reconciliation window:
+  *Written 2026-11-26:* a session is allowed only if both its role and its application name are listed; client
+  backends on the moodle database only; never prints query text; psql exits 3 on any other session. *Tested locally:*
+  idle passes; a planted session named `intruder` fails it. The row counters (`tup_*`) are the ones to watch:
+  `xact_commit` moves with read-only sessions too.
+- `elm-reconcile.md` (DR06, V605; *written 2026-11-26*, with the two extraction queries, tested on the local prod copy):
+  compares three sources over a reconciliation window:
   - ELM's records of received completions, obtained by the owner as the ELM contact (Q19);
   - Moodle's `course_completions`;
   - `local_psaelmsync_logs`.
@@ -1435,7 +1476,7 @@ created with `--internal`, so it has no route to the internet.
 8. **Moodledata backup (V801–V803),** with the job image's own tools, against a local Postgres copy, local php and cron,
    and a local moodledata. **First results, 2026-11-25** (`scripts/ops/moodledata-backup.sh` in the ops image, against the
    prod copy and its 2.4 GiB of files; pgBackRest stood in by a stub, so the real gate is for Pass A): first set, pause
-   24 s (drain 9 s, all 8,711 files copied and SHA-1-checked in 15 s, the 62 known gaps recorded); every later night, pause
+   24 s (drain 9 s, all 8,711 files copied and SHA-1-checked in 15 s, the 62 known gaps recorded; they are an artifact of the test data, not legacy gaps: see `check-filedir` in §8.3); every later night, pause
    9 s, nothing copied, the rest hard-linked (same inode, no extra space); two runs at once: the second exits on the lock;
    an operator's maintenance file: skipped and left alone; a drain that never quiets (a Postgres worker owned by the
    local superuser): the site reopened at the 5-minute limit, alert, night skipped; archive behind the restore point: not
@@ -1693,7 +1734,7 @@ reviewers and the owner.
 7. Return the temporary quota. Archive the moodle-nginx workflows and mark the repository read-only.
 8. Retire a58ce1 (including the learningcurator leftovers) and release ad4087. a58ce1-dev's psa-moodle objects have no Helm
    release records any more, so delete them by name.
-9. **Before deleting `ops/replatform/` (V806),** restore a recovery set in dev using only `ops/backup/` and the released
+9. **Before deleting `ops/replatform/` (V806),** restore a recovery set in dev using only `scripts/ops/` and the released
    images. The backup and restore tooling stays.
 10. Update `README.md`, `CLAUDE.md` and this runbook.
 

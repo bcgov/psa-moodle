@@ -14,6 +14,9 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "postgres") | nindent 4 }}
 spec:
+  # S13 full shutdown (ops/replatform/full-shutdown.sh / full-start.sh): the operator scales every Postgres workload
+  # to zero and suspends its backup CronJobs. Its PVCs and data are kept.
+  shutdown: {{ .Values.postgres.shutdown | default false }}
   postgresVersion: {{ .Values.postgres.postgresVersion }}
   {{- with .Values.postgres.image }}
   image: {{ . }}
