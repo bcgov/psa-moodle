@@ -2181,6 +2181,12 @@ created with `--internal`, so it has no route to the internet.
       run), a drain loop that couldn't recognise zero, and a misread grouped count.
     - **Next:** the new stack stays fenced with the loaded copy. Before run 2: a build with the fixes, then discard the
       copy (separate approval). Run 2 goes through the commit point and a return (§14), and checks a plain user's SSO.
+  - ***Reset for run 2, 2026-11-26*** (owner-approved): the copy discarded by the rehearsed undo (storage back to
+    62,814 MiB; legacy dev matching `passb1-precutover`, after `state-restore.sh` learned to skip the release's Route and
+    Crunchy's own objects); `build-exact` with window 1's fixes (run 45901281051, `1c46829`); bootstrap (run
+    45902512348; the fixed verify step passed); files pre-copied with the fixed ops image as is (6,120 intact, 0
+    unexpected). Owner decisions: email stays diverted to the owner (already so in dev's and test's databases); **ELM
+    goes to a mock** in run 2. **Run 2's plan:** [passb-run-2.md](passb-run-2.md).
   - a rollback at **every** checkpoint (CP1, CP2, CP3), ending in exactly the recorded state;
   - a rollback with **new PHP down**, with **new Postgres down**, and after a **failed Helm rollout** (S13; the old site's
     return must not need the new site);
