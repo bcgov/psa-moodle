@@ -117,6 +117,17 @@ jobs:
         with:
           version: v3.14.3
 
+      - name: Install oc (OpenShift 4.18 client, checksum-verified)
+        run: |
+          # GitHub's Ubuntu runners no longer ship oc, which oc-login needs (Pass A's first run, 2026-11-26).
+          v=4.18.56; base=https://mirror.openshift.com/pub/openshift-v4/clients/ocp/$v
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "$base/openshift-client-linux-$v.tar.gz"
+          curl -fsSL "$base/sha256sum.txt" | grep -E " openshift-client-linux-$v.tar.gz$" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "openshift-client-linux-$v.tar.gz" -C "$RUNNER_TEMP/bin" oc
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/oc" version --client
+
       - name: oc login
         uses: redhat-actions/oc-login@v2
         with:
