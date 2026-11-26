@@ -80,6 +80,22 @@ jobs:
       ENV_SHORT: ${{ inputs.environment == '950003-prod' && 'prod' || inputs.environment == '950003-test' && 'test' || 'dev' }}
       NS: ${{ vars.NAMESPACE }}
       RELEASE: psa-moodle
+      # Every input and variable reaches the scripts as an environment variable, never pasted into script text: a
+      # value's quotes once broke the script (ROUTE_ALLOWED_SOURCES, Pass A, 2026-11-26), and pasting is an injection risk.
+      IN_ALLOW_HOST_CHANGE: ${{ inputs.allow_host_change }}
+      IN_CRON_DIGEST: ${{ inputs.cron_digest }}
+      IN_ENVIRONMENT: ${{ inputs.environment }}
+      IN_OPS_DIGEST: ${{ inputs.ops_digest }}
+      IN_OVERLAY: ${{ inputs.overlay }}
+      IN_PHP_DIGEST: ${{ inputs.php_digest }}
+      IN_PROFILE: ${{ inputs.profile }}
+      IN_SITE_HOST: ${{ inputs.site_host }}
+      IN_WEB_DIGEST: ${{ inputs.web_digest }}
+      V_ALERT_TO: ${{ vars.ALERT_TO }}
+      V_FENCE_SERVICE: ${{ vars.FENCE_SERVICE }}
+      V_PUBLIC_WWWROOT: ${{ vars.PUBLIC_WWWROOT }}
+      V_REVIEWER_ADMINS: ${{ vars.REVIEWER_ADMINS }}
+      V_ROUTE_ALLOWED_SOURCES: ${{ vars.ROUTE_ALLOWED_SOURCES || '[]' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -87,18 +103,21 @@ jobs:
       - name: Check inputs and settings
         run: |
           case "$NS" in 950003-*) ;; *) echo "::error::environment variable NAMESPACE must be a 950003 namespace"; exit 1 ;; esac
-          [ "$NS" = "${{ inputs.environment }}" ] || { echo "::error::NAMESPACE $NS does not match ${{ inputs.environment }}"; exit 1; }
-          for d in "${{ inputs.php_digest }}" "${{ inputs.web_digest }}" "${{ inputs.cron_digest }}" "${{ inputs.ops_digest }}"; do
+          [ "$NS" = "$IN_ENVIRONMENT" ] || { echo "::error::NAMESPACE $NS does not match $IN_ENVIRONMENT"; exit 1; }
+          for d in "$IN_PHP_DIGEST" "$IN_WEB_DIGEST" "$IN_CRON_DIGEST" "$IN_OPS_DIGEST"; do
             [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::not an image digest: $d"; exit 1; }
           done
-          [ -n "${{ vars.ALERT_TO }}" ] || { echo "::error::environment variable ALERT_TO is not set"; exit 1; }
-          if [ "${{ inputs.profile }}" = fenced ] && [ -z "${{ vars.FENCE_SERVICE }}" ]; then
+          [ -n "$V_ALERT_TO" ] || { echo "::error::environment variable ALERT_TO is not set"; exit 1; }
+          jq -e 'type == "array" and all(.[]; type == "string" and test("^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$"))' \
+            <<< "$V_ROUTE_ALLOWED_SOURCES" >/dev/null \
+            || { echo "::error::ROUTE_ALLOWED_SOURCES must be a JSON list of IPv4 CIDRs, like [\"203.0.113.4/32\"]"; exit 1; }
+          if [ "$IN_PROFILE" = fenced ] && [ -z "$V_FENCE_SERVICE" ]; then
             echo "::error::fenced needs the environment variable FENCE_SERVICE"; exit 1
           fi
-          if [ "$ENV_SHORT" != dev ] && { [ "${{ inputs.profile }}" = empty-install ] || [ "${{ inputs.overlay }}" != none ]; }; then
+          if [ "$ENV_SHORT" != dev ] && { [ "$IN_PROFILE" = empty-install ] || [ "$IN_OVERLAY" != none ]; }; then
             echo "::error::empty-install and the size overlays are for 950003-dev only"; exit 1
           fi
-          if [ "${{ inputs.site_host }}" = public ] && [ -z "${{ vars.PUBLIC_WWWROOT }}" ]; then
+          if [ "$IN_SITE_HOST" = public ] && [ -z "$V_PUBLIC_WWWROOT" ]; then
             echo "::error::site_host=public needs the environment variable PUBLIC_WWWROOT"; exit 1
           fi
 
@@ -129,23 +148,23 @@ jobs:
         id: values
         run: |
           off=(--set moodle.outbound=off --set networkPolicy.externalEgress=off)
-          case "${{ inputs.profile }}" in
+          case "$IN_PROFILE" in
             bootstrap)     prof=(--set migration.state=fenced "${off[@]}" --set install.enabled=false --set backup.moodledata.suspended=true)
-                           [ -z "${{ vars.FENCE_SERVICE }}" ] || prof+=(--set migration.fenceService="${{ vars.FENCE_SERVICE }}") ;;
+                           [ -z "$V_FENCE_SERVICE" ] || prof+=(--set migration.fenceService="$V_FENCE_SERVICE") ;;
             empty-install) prof=(--set migration.state=normal "${off[@]}" --set install.enabled=true --set cron.enabled=true --set backup.moodledata.suspended=false) ;;
             precommit)     prof=(--set migration.state=normal "${off[@]}" --set install.enabled=false --set cron.enabled=false --set backup.moodledata.suspended=true) ;;
             commit)        prof=(--set migration.state=normal --set moodle.outbound=on --set networkPolicy.externalEgress=on --set install.enabled=false --set cron.enabled=true --set backup.moodledata.suspended=false) ;;
-            fenced)        prof=(--set migration.state=fenced --set migration.fenceService="${{ vars.FENCE_SERVICE }}" --set install.enabled=false) ;;
+            fenced)        prof=(--set migration.state=fenced --set migration.fenceService="$V_FENCE_SERVICE" --set install.enabled=false) ;;
           esac
-          [ "${{ inputs.site_host }}" = public ] && prof+=(--set "moodle.wwwroot=${{ vars.PUBLIC_WWWROOT }}")
+          [ "$IN_SITE_HOST" = public ] && prof+=(--set "moodle.wwwroot=$V_PUBLIC_WWWROOT")
           {
             printf '%s\n' -f "chart/psa-moodle/values-950003-$ENV_SHORT.yaml"
-            [ "${{ inputs.overlay }}" = none ] || printf '%s\n' -f "chart/psa-moodle/values-950003-${{ inputs.overlay }}.yaml"
-            printf '%s\n' --set "php.image.digest=${{ inputs.php_digest }}" --set "web.image.digest=${{ inputs.web_digest }}"
-            printf '%s\n' --set "cron.image.digest=${{ inputs.cron_digest }}" --set "image.ops.digest=${{ inputs.ops_digest }}"
-            printf '%s\n' --set "backup.alerts.to=${{ vars.ALERT_TO }}"
-            printf '%s\n' --set-json "route.allowedSources=${{ vars.ROUTE_ALLOWED_SOURCES || '[]' }}"
-            [ -n "${{ vars.REVIEWER_ADMINS }}" ] && printf '%s\n' --set "moodle.reviewerAdmins=${{ vars.REVIEWER_ADMINS }}"
+            [ "$IN_OVERLAY" = none ] || printf '%s\n' -f "chart/psa-moodle/values-950003-$IN_OVERLAY.yaml"
+            printf '%s\n' --set "php.image.digest=$IN_PHP_DIGEST" --set "web.image.digest=$IN_WEB_DIGEST"
+            printf '%s\n' --set "cron.image.digest=$IN_CRON_DIGEST" --set "image.ops.digest=$IN_OPS_DIGEST"
+            printf '%s\n' --set "backup.alerts.to=$V_ALERT_TO"
+            printf '%s\n' --set-json "route.allowedSources=$V_ROUTE_ALLOWED_SOURCES"
+            [ -n "$V_REVIEWER_ADMINS" ] && printf '%s\n' --set "moodle.reviewerAdmins=$V_REVIEWER_ADMINS"
             printf '%s\n' "${prof[@]}"
           } > /tmp/helm-args
           mapfile -t args < /tmp/helm-args          # one argument per line, so values may contain spaces
@@ -162,8 +181,8 @@ jobs:
             | jq -r '.spec.template.spec.containers[0].env[]? | select(.name == "MOODLE_WWWROOT") | .value' || true)
           new_root="${{ steps.values.outputs.new_root }}"
           echo "deployed wwwroot: ${old_root:-<none>}; this run: $new_root"
-          if [ -n "$old_root" ] && [ "$old_root" = "${{ vars.PUBLIC_WWWROOT }}" ] && [ "$new_root" != "$old_root" ] \
-             && [ "${{ inputs.allow_host_change }}" != true ]; then
+          if [ -n "$old_root" ] && [ "$old_root" = "$V_PUBLIC_WWWROOT" ] && [ "$new_root" != "$old_root" ] \
+             && [ "$IN_ALLOW_HOST_CHANGE" != true ]; then
             echo "::error::this run would move the deployed public wwwroot back to $new_root; set allow_host_change to do that"; exit 1
           fi
 
@@ -200,7 +219,7 @@ jobs:
 
       - name: Verify the profile
         run: |
-          case "${{ inputs.profile }}" in
+          case "$IN_PROFILE" in
             fenced|bootstrap)
               ops/replatform/verify-fenced.sh "$NS" "$RELEASE"
               pg=$(oc get postgrescluster -n "$NS" -l "app.kubernetes.io/instance=$RELEASE" -o jsonpath='{.items[0].metadata.name}')
@@ -210,7 +229,7 @@ jobs:
                 || oc get secret -n "$NS" -o name | grep -- "$pg-pguser-"
               ;;
             empty-install|precommit|commit)
-              expect=$([ "${{ inputs.profile }}" = commit ] && echo off || echo on)
+              expect=$([ "$IN_PROFILE" = commit ] && echo off || echo on)
               pod=$(oc get pods -n "$NS" -l "app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component=php" \
                     --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
               oc exec -i -n "$NS" "$pod" -c php -- sh -c 'cat > /tmp/check-outbound-guard.php' < ops/replatform/check-outbound-guard.php
@@ -221,11 +240,11 @@ jobs:
         if: always()
         run: |
           {
-            echo "## deploy-950003: ${{ inputs.environment }}, profile ${{ inputs.profile }}, site ${{ inputs.site_host }}, overlay ${{ inputs.overlay }}"
+            echo "## deploy-950003: $IN_ENVIRONMENT, profile $IN_PROFILE, site $IN_SITE_HOST, overlay $IN_OVERLAY"
             echo
-            echo "- php \`${{ inputs.php_digest }}\`"
-            echo "- web \`${{ inputs.web_digest }}\`"
-            echo "- cron \`${{ inputs.cron_digest }}\`"
-            echo "- ops \`${{ inputs.ops_digest }}\`"
+            echo "- php \`$IN_PHP_DIGEST\`"
+            echo "- web \`$IN_WEB_DIGEST\`"
+            echo "- cron \`$IN_CRON_DIGEST\`"
+            echo "- ops \`$IN_OPS_DIGEST\`"
             echo "- result: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
