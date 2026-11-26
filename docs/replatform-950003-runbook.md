@@ -1693,7 +1693,20 @@ created with `--internal`, so it has no route to the internet.
     (`142.34.194.119:6443`) all time out; Postgres, Valkey and DNS work. **First pgBackRest backup:** full backup
     `20261126-045042F` (276 s, 5 MiB, empty site). Crunchy's first backup Job failed three times on its start-up race
     (`hash ... does not match local hash`: the repo host's configuration hadn't caught up yet) and succeeded on its
-    fourth attempt, about 8 minutes after creation; expect this on every new cluster.
+    fourth attempt, about 8 minutes after creation; expect this on every new cluster. (The console keeps showing the
+    three failed pods of that Job; they are history, not a fault.)
+    **Backup role and canary (owner-approved):** the restricted role `moodle-backup` existed from the first install with
+    both bootstrap grants (V1004); `backup-role-grants.sql` granted SELECT on `mdl_files` and proved nothing broader;
+    `encryption-canary.php create` stored the canary, which decrypts with the dataroot's key.
+    **First nightly moodledata backup, run by hand (owner-approved, Job `psa-moodle-moodledata-backup-manual-1`):
+    published.** The drain, as the restricted role, waited **162 s** for Moodle's sessions to end (V1001 fixed: v1.0's
+    query would have counted none); restore point `rp-set-20261126T045919Z-1` with its WAL segment closed; **the gate
+    against the real pgBackRest passed** on the first look: the live system identifier matched, base backup
+    `20261126-045042F_20261126-050006I` (the hourly incremental), WAL archived through the restore point's segment
+    (V1002); the ops pod reached the Kubernetes API through the new egress rule; 4 files, published. **To follow up:** a
+    162-second pause is longer than J1's "about a minute", most likely Moodle 4.5's cron keep-alive holding `cron.php` for
+    up to 3 minutes; within the 5-minute drain limit, but worth shortening (stop the keep-alive while the backup page is
+    up).
     Earlier attempts each found a defect, fixed before the next: `oc` missing on the runner; pasted variables breaking
     the render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning`; the empty reviewer
     list. Still to fix with the next images: the `X-PSA-Stack` header (C12) isn't set, and the responses expose
