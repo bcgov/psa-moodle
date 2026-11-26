@@ -56,14 +56,28 @@ while ($row = $r->fetch_row()) {
     $dbv[$row[0]] = $row[1];
 }
 
+// Versions are decimals: Moodle stores set_config('version', 2024100715.00) as PHP renders the float, "2024100715", while
+// version.php says "2024100715.00". Compare the decimal value, never the text, as Moodle itself does (Pass B dry run,
+// 2026-11-26: legacy dev's 4.5.15 stopped here on exactly that). No float conversion: exact digits, trailing zeros dropped.
+function vnorm($v): string {
+    $v = trim((string)$v);
+    if (!preg_match('/^[0-9]+(\.[0-9]+)?$/', $v)) {
+        return "unparseable:$v";
+    }
+    if (strpos($v, '.') !== false) {
+        $v = rtrim(rtrim($v, '0'), '.');
+    }
+    return ltrim($v, '0') === '' ? '0' : ltrim($v, '0');
+}
+
 $bad = [];
-if ((string)$coredb !== (string)$corecode) {
+if (vnorm($coredb) !== vnorm($corecode)) {
     $bad[] = "core: database $coredb, code $corecode";
 }
 foreach ($code as $comp => $v) {
     if (!array_key_exists($comp, $dbv)) {
         $bad[] = "$comp: in the code ($v) but not in the database (would be installed)";
-    } else if ((string)$dbv[$comp] !== (string)$v) {
+    } else if (vnorm($dbv[$comp]) !== vnorm($v)) {
         $bad[] = "$comp: database {$dbv[$comp]}, code $v";
     }
 }
