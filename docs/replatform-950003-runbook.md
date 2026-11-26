@@ -2101,6 +2101,11 @@ created with `--internal`, so it has no route to the internet.
 - **Pass B: dress rehearsal of the cutover (§13) and the return (§14).** Legacy dev is the source, at its deployed 4.5.15
   with the dev build (J3), and its Routes play the public Routes. Record the starting state (S14) first. Each run must
   include:
+  - ***Started 2026-11-26:*** Pass A uninstalled by the rehearsed undo (owner-approved): `helm uninstall`, then the two
+    kept PVCs and two kept Secrets deleted; nothing of the release or of `psa-moodle-pg` left; storage back to
+    62,814 MiB; legacy dev matches `prepassa`; the deploy account kept. v1.4's dev build: `build-exact` run
+    45884132438 (4.5.15, commit `befd3f8`). Legacy dev captured as **`prepassb`**. `check-collisions.sh` on the
+    bootstrap render with those images and `dev-pass-b`: **PASS**, 0 collisions.
   - a rollback at **every** checkpoint (CP1, CP2, CP3), ending in exactly the recorded state;
   - a rollback with **new PHP down**, with **new Postgres down**, and after a **failed Helm rollout** (S13; the old site's
     return must not need the new site);
