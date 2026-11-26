@@ -28,7 +28,8 @@ IMAGE_PHP=${IMAGE_PHP:?set IMAGE_PHP to the exact-code php image (by digest)}
 set_id=$(jq -r .set "$MAN"); base=$(jq -r .database.base_backup "$MAN"); tl=$(jq -r .database.timeline "$MAN")
 GAPS_FILE="$(dirname "$MAN")/source-gaps.txt"
 [ -f "$GAPS_FILE" ] || { echo "no source-gaps.txt beside the manifest ($GAPS_FILE)" >&2; exit 1; }
-gaps_php=$(grep -E '^[0-9a-f]{40}$' "$GAPS_FILE" | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))' | sed "s/\"/'/g")
+# { grep || true; }: a set with no gaps has an empty list, and under pipefail grep's "no match" would stop the script.
+gaps_php=$({ grep -E '^[0-9a-f]{40}$' "$GAPS_FILE" || true; } | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))' | sed "s/\"/'/g")
 [ "$(jq '.inventory.source_gaps' "$MAN")" = "$(grep -cE '^[0-9a-f]{40}$' "$GAPS_FILE" || true)" ] \
   || { echo "source-gaps.txt does not match the manifest's count" >&2; exit 1; }
 sysid=$(jq -r .database.system_identifier "$MAN")
