@@ -1,0 +1,90 @@
+# ELM mock for Pass B (docs/passb-run-2.md M1, M2). CHANGES THE CLUSTER: each apply needs the owner's approval.
+#   oc -n 950003-dev create configmap elm-mock-script --from-file=elm-mock.pl=ops/replatform/elm-mock.pl
+#   OPS_IMAGE=<registry>/psa-moodle/ops@sha256:<digest> envsubst '$OPS_IMAGE' < ops/replatform/elm-mock.yaml | oc -n 950003-dev apply -f -
+# The rehearsal copy's local_psaelmsync apiurl and completion_apiurl point at http://elm-mock:8080/....
+# Undo: oc -n 950003-dev delete deploy/elm-mock svc/elm-mock networkpolicy/elm-mock-from-psa-moodle networkpolicy/psa-moodle-to-elm-mock configmap/elm-mock-script
+# (the recorded completions go to the private run folder first: oc exec deploy/elm-mock -- cat /data/received.tsv).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elm-mock
+  labels: {app.kubernetes.io/name: elm-mock, app.kubernetes.io/part-of: replatform-950003}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: elm-mock}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: elm-mock, app.kubernetes.io/part-of: replatform-950003}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: mock
+          image: ${OPS_IMAGE}
+          command: ["perl", "/script/elm-mock.pl"]
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {tcpSocket: {port: http}, periodSeconds: 5}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: script, mountPath: /script, readOnly: true}
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: script
+          configMap: {name: elm-mock-script}
+        - name: data
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elm-mock
+  labels: {app.kubernetes.io/name: elm-mock, app.kubernetes.io/part-of: replatform-950003}
+spec:
+  selector: {app.kubernetes.io/name: elm-mock}
+  ports: [{name: http, port: 8080, targetPort: http}]
+---
+# Ingress to the mock from the release's php and cron. (Legacy's namespace-wide allow-all-internal already admits any pod
+# in the namespace: policies only add, so this documents intent rather than narrowing it.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: elm-mock-from-psa-moodle
+  labels: {app.kubernetes.io/name: elm-mock, app.kubernetes.io/part-of: replatform-950003}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: elm-mock}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/instance, operator: In, values: [psa-moodle]}
+              - {key: app.kubernetes.io/component, operator: In, values: [php, cron]}
+      ports: [{port: 8080, protocol: TCP}]
+---
+# Egress from the release's php and cron to the mock: the release's own policies allow no in-cluster peer but Postgres
+# and Valkey.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: psa-moodle-to-elm-mock
+  labels: {app.kubernetes.io/name: elm-mock, app.kubernetes.io/part-of: replatform-950003}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/instance, operator: In, values: [psa-moodle]}
+      - {key: app.kubernetes.io/component, operator: In, values: [php, cron]}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: elm-mock}
+      ports: [{port: 8080, protocol: TCP}]
