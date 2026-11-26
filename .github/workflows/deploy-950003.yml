@@ -233,8 +233,14 @@ jobs:
             fenced|bootstrap)
               ops/replatform/verify-fenced.sh "$NS" "$RELEASE"
               pg=$(oc get postgrescluster -n "$NS" -l "app.kubernetes.io/instance=$RELEASE" -o jsonpath='{.items[0].metadata.name}')
-              oc wait pod -n "$NS" -l "postgres-operator.crunchydata.com/cluster=$pg,postgres-operator.crunchydata.com/role in (master,primary)" \
-                --for=condition=Ready --timeout=10m
+              primary="postgres-operator.crunchydata.com/cluster=$pg,postgres-operator.crunchydata.com/role in (master,primary)"
+              # `oc wait` fails at once if no pod matches yet, and Crunchy creates the primary only after its volumes bind
+              # and Patroni elects it (Pass B bootstrap, 2026-11-26): wait for it to exist first, up to 10 minutes.
+              for _ in $(seq 1 60); do
+                [ -n "$(oc get pod -n "$NS" -l "$primary" -o name 2>/dev/null)" ] && break
+                sleep 10
+              done
+              oc wait pod -n "$NS" -l "$primary" --for=condition=Ready --timeout=10m
               oc get secret "$pg-pguser-moodle" "$pg-pguser-moodle-backup" -n "$NS" -o name 2>/dev/null \
                 || oc get secret -n "$NS" -o name | grep -- "$pg-pguser-"
               ;;
