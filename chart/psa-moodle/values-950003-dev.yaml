@@ -53,7 +53,10 @@ valkey:
     repository: artifacts.developer.gov.bc.ca/docker-remote/valkey/valkey   # Artifactory's Docker Hub cache (m950-learning is local only)
     tag: 7.2.16-alpine
     digest: sha256:3056ae42eccb4cf4ef5e5a403a68f6dbd8038774456086c152961bb79a467c6d
+  # Moodle's application cache only (§0.11): no persistence, no volume. Changing this on a deployed release needs the
+  # StatefulSet recreated (its volumeClaimTemplates can't change in place); Pass B starts from a fresh install.
   persistence:
+    enabled: false
     size: 1Gi
 
 postgres:

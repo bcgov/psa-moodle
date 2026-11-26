@@ -17,7 +17,11 @@ data:
 
     # Lightweight RDB only — Moodle uses Valkey for sessions + cache; in-flight
     # loss on restart is acceptable.
+    {{- if .Values.valkey.persistence.enabled }}
     save 60 1000
+    {{- else }}
+    save ""
+    {{- end }}
     appendonly no
     dir /data
 

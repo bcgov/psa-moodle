@@ -1,6 +1,5 @@
 # Dev Pass C sizes (a target's data at prod scale: 1.5 GB database in Postgres, 2.93 GB of referenced files, 2026-11;
 # runbook §9, review V1007). The Pass C fixture's own 4 GiB moodledata PVC is outside the release.
 moodledata: { size: 5Gi }
-valkey: { persistence: { size: 1Gi } }
 postgres: { instances: { storage: 4Gi }, pgbackrest: { repoStorage: 8Gi } }
 backup: { moodledata: { size: 6Gi } }

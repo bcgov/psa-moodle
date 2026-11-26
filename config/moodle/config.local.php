@@ -29,18 +29,9 @@ $CFG->dataroot  = '/var/www/moodledata';
 $CFG->admin     = 'admin';
 $CFG->directorypermissions = 0777;
 
-// --- Session storage: Valkey (Redis wire-compatible) ---
-// Single-node in local dev; matches the dev/test target in OpenShift.
-// HA via Sentinel is added later only if measured need (see plan Phase 4).
-$CFG->session_handler_class = '\core\session\redis';
-$CFG->session_redis_host    = getenv('CACHE_HOST') ?: 'cache';
-$CFG->session_redis_port    = (int)(getenv('CACHE_PORT') ?: 6379);
-$CFG->session_redis_database = 0;
-$CFG->session_redis_auth     = getenv('CACHE_PASSWORD') ?: '';
-$CFG->session_redis_prefix   = 'mdl_sess_';
-$CFG->session_redis_acquire_lock_timeout = 120;
-$CFG->session_redis_lock_expire = 7200;
-$CFG->session_redis_serializer_use_igbinary = false;
+// --- Sessions: in Postgres, as on OpenShift (config.openshift.php); Valkey is the application cache only ---
+$CFG->session_handler_class = '\core\session\database';
+$CFG->session_database_acquire_lock_timeout = 120;
 
 // --- Fast local cache areas (mirror OpenShift emptyDir pattern) ---
 $CFG->localcachedir = '/var/local-cache';

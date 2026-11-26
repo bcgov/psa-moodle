@@ -49,6 +49,7 @@ jobs:
             base=(-f "chart/psa-moodle/values-950003-$e.yaml" --set backup.alerts.to=ci@example.invalid
                   --set php.image.digest="$d" --set web.image.digest="$d" --set cron.image.digest="$d")
             echo "== $e precommit"; scripts/chart-egress-matrix.sh --expect precommit -- "${base[@]}" --set moodle.outbound=off --set networkPolicy.externalEgress=off
+            echo "== $e review"; scripts/chart-egress-matrix.sh --expect review -- "${base[@]}" --set moodle.outbound=off --set networkPolicy.externalEgress=on --set cron.enabled=false
             echo "== $e commit"; scripts/chart-egress-matrix.sh --expect commit -- "${base[@]}" --set moodle.outbound=on --set networkPolicy.externalEgress=on
           done
       - name: 950003 images all through Artifactory (m950-learning, or its Docker Hub cache docker-remote), by digest (C13)

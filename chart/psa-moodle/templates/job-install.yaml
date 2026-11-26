@@ -74,6 +74,8 @@ spec:
                 --adminemail="$MOODLE_ADMIN_EMAIL" \
                 --shortname="PSA" \
                 --fullname="PSA Moodle ({{ .Release.Namespace }})"
+              # The php pods started before the site existed, so their cache setup found nothing to configure.
+              php /usr/local/share/psa/configure-cache.php
           env:
             {{- include "psa-moodle.appEnv" . | nindent 12 }}
             - name: MOODLE_ADMIN_USER

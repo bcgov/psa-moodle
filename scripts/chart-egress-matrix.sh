@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Egress actually granted to each component of a rendered release (runbook C9, C15; review V1003). Local only.
 #
-#   chart-egress-matrix.sh [--expect precommit|commit] -- <helm template arguments...>
+#   chart-egress-matrix.sh [--expect precommit|review|commit] -- <helm template arguments...>
 #
 # Renders the chart, finds every pod template (Deployments, StatefulSets, Jobs, CronJobs), and lists for each component
 # the egress its selected NetworkPolicies allow: in-release pods, CIDR blocks, and DNS (rules without `to`).
@@ -10,6 +10,7 @@
 #              backup-integrity, restore-rehearsal, present ones): the Kubernetes API port and SMTP; moodledata-backup
 #              and backup-integrity also Postgres
 #   precommit  php and cron reach no CIDR at all (C15 off)
+#   review     php (and cron, if present) reach 443 and no other CIDR, never SMTP (CP3's SSO check, V1204)
 #   commit     php and cron reach 443 and SMTP (C9, C15 on)
 set -euo pipefail
 EXPECT=""
@@ -66,6 +67,10 @@ jq -r --arg expect "$EXPECT" '
           | if has_g($o; ":5432$") then empty else "\($o) cannot reach Postgres" end ),
         ( ("php","cron") as $a | select(present($a))
           | if $expect == "precommit" then (if (cidrs($a) | length) > 0 then "\($a) has external egress before the commit point: \(cidrs($a) | join(" "))" else empty end)
+            elif $expect == "review" then
+              (if has_g($a; "^cidr:.*:443$") then empty else "\($a) cannot reach HTTPS for the SSO exchange (review profile)" end),
+              (if has_g($a; "^cidr:.*:25$") then "\($a) can send mail before the commit point (review profile)" else empty end),
+              (if ([ cidrs($a)[] | select(test(":443$") | not) ] | length) > 0 then "\($a) has external egress beyond HTTPS (review profile): \([ cidrs($a)[] | select(test(":443$") | not) ] | join(" "))" else empty end)
             elif $expect == "commit" then
               (if has_g($a; "^cidr:.*:443$") then empty else "\($a) cannot reach HTTPS after the commit point" end),
               (if has_g($a; "^cidr:.*:25$") then empty else "\($a) cannot send mail after the commit point" end)

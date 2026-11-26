@@ -1,6 +1,7 @@
 {{- /*
-Single-replica Valkey for dev/test. Sentinel HA topology is a Phase 4 decision
-gated on measured restart impact (see plan).
+One Valkey. With persistence on it is a StatefulSet with a volume. 950003 turns persistence off: Valkey is Moodle's
+application cache only (runbook §0.11), so it runs as a Deployment, which Kubernetes replaces on another node by itself
+when its node fails; a StatefulSet's pod would wait until the failed node is confirmed gone.
 
 OpenShift's restricted-v2 SCC reassigns UIDs and fsGroup at admission, so we
 do NOT set runAsUser/fsGroup here — the upstream valkey/valkey image has /data
@@ -8,14 +9,20 @@ owned by the valkey user, and SCC's fsGroup chown of the mounted PVC makes it
 writable by the reassigned UID's group (group 0).
 */ -}}
 apiVersion: apps/v1
-kind: StatefulSet
+kind: {{ if .Values.valkey.persistence.enabled }}StatefulSet{{ else }}Deployment{{ end }}
 metadata:
   name: {{ include "psa-moodle.valkey.fullname" . }}
   labels:
     {{- include "psa-moodle.componentLabels" (list . "valkey") | nindent 4 }}
 spec:
   replicas: 1
+  {{- if .Values.valkey.persistence.enabled }}
   serviceName: {{ include "psa-moodle.valkey.serviceName" . }}
+  {{- else }}
+  # Never two caches serving at once: an invalidation written to one would leave stale entries in the other. Recreate
+  # stops the old pod before starting the new one; an evicted pod leaves the Service as soon as it starts terminating.
+  strategy: { type: Recreate }
+  {{- end }}
   selector:
     matchLabels:
       {{- include "psa-moodle.componentSelectorLabels" (list . "valkey") | nindent 6 }}
@@ -87,6 +94,11 @@ spec:
             items:
               - key: valkey.conf
                 path: valkey.conf
+        {{- if not .Values.valkey.persistence.enabled }}
+        # A cache only (runbook §0.11): nothing to keep across restarts, so no volume to attach on a new node.
+        - name: data
+          emptyDir: {}
+        {{- end }}
   {{- if .Values.valkey.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:

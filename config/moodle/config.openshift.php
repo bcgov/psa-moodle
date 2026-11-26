@@ -31,18 +31,13 @@ $CFG->dataroot = '/var/www/moodledata';       // RWX PVC, netapp-file-standard
 $CFG->admin    = 'admin';
 $CFG->directorypermissions = 02777;
 
-// --- Session storage: Valkey via Service DNS ---
-// In dev/test this is a single Valkey pod; Sentinel topology will be added in
-// values-prod.yaml only if measured need (see plan Phase 4).
-$CFG->session_handler_class = '\core\session\redis';
-$CFG->session_redis_host    = getenv('CACHE_HOST');     // <release>-valkey
-$CFG->session_redis_port    = (int)(getenv('CACHE_PORT') ?: 6379);
-$CFG->session_redis_database = 0;
-$CFG->session_redis_auth     = getenv('CACHE_PASSWORD') ?: '';
-$CFG->session_redis_prefix   = 'mdl_sess_';
-$CFG->session_redis_acquire_lock_timeout = 120;
-$CFG->session_redis_lock_expire = 7200;
-$CFG->session_redis_serializer_use_igbinary = false;
+// --- Sessions: in Postgres (runbook §0.11; owner decision 2026-11-26) ---
+// Postgres is the highly available part of the stack, so a Valkey restart can no longer log anyone out or fail every
+// request. Moodle's database handler locks each session with a Postgres advisory lock on its own connection, which
+// needs a direct connection (no transaction pooler; there is none). Valkey is now Moodle's application cache only,
+// configured by /usr/local/share/psa/configure-cache.php from CACHE_HOST, CACHE_PORT and CACHE_PASSWORD.
+$CFG->session_handler_class = '\core\session\database';
+$CFG->session_database_acquire_lock_timeout = 120;
 
 // --- Fast local cache areas (emptyDir, memory-backed via Helm) ---
 $CFG->localcachedir = '/mnt/ramdisk/localcache';

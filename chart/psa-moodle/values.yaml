@@ -105,8 +105,9 @@ moodledata:
   size: 10Gi
 
 # --- Valkey (Linux Foundation Redis fork) --------------------------------------
-# Single-replica in dev/test. Sentinel HA topology is deferred to a Phase 4
-# decision, gated on measured restart impact (see plan).
+# One replica. 950003 uses it as Moodle's application cache only (sessions are in Postgres; runbook §0.11, owner
+# decision 2026-11-26): a restart costs a cold cache, and requests in flight at that moment can fail (review V1201).
+# No Sentinel or cluster, by the owner's choice.
 valkey:
   image:
     repository: docker.io/valkey/valkey

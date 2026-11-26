@@ -134,6 +134,8 @@ spec:
           annotations:
             summary: "Postgres PVC above 80% (auto-shutdown at 90%)"
 
+    {{- if include "psa-moodle.phpFpmExporter" . }}
+    # V1209: these read the php-fpm exporter's metrics, so they exist only with it; without it they could never fire.
     - name: psa-moodle.php
       rules:
         - alert: PHPFPMQueueSaturated
@@ -156,6 +158,7 @@ spec:
             severity: critical
           annotations:
             summary: "PHP-FPM has queued requests but no active workers"
+    {{- end }}
 
     - name: psa-moodle.platform
       rules:

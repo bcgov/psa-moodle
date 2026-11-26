@@ -1,6 +1,5 @@
 # Dev Pass A sizes (empty install; runbook §9, review V1007). Layered on values-950003-dev.yaml by deploy-950003's
 # `overlay` input. PVCs can't shrink: between passes, uninstall and delete the release's PVCs (§9 storage budget).
 moodledata: { size: 1Gi }
-valkey: { persistence: { size: 1Gi } }
 postgres: { instances: { storage: 2Gi }, pgbackrest: { repoStorage: 3Gi } }
 backup: { moodledata: { size: 2Gi } }

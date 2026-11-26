@@ -30,6 +30,8 @@ RUN chmod +x /usr/local/bin/install-php-extensions \
 
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 COPY config/php/php.ini $PHP_INI_DIR/conf.d/zz-moodle.ini
+# The installer Job (this image) runs it after install_database.php (runbook §0.11).
+COPY --chmod=0644 scripts/ops/configure-cache.php /usr/local/share/psa/configure-cache.php
 
 COPY --from=src --chown=www-data:0 /var/www/html /var/www/html
 

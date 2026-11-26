@@ -11,6 +11,9 @@
 #                  and the backup role exist, so §13.2 can load the database. No version check (nothing loaded yet).
 #   empty-install  DEV ONLY (Pass A): Moodle's installer on an empty database; outbound and external egress off.
 #   precommit      outbound off, external egress off, cron off, nightly backup provisioned but suspended (§13, S15)
+#   review         CP3's SSO check (V1204): as precommit, but php may reach HTTPS outside the cluster, which Moodle's
+#                  OAuth token exchange with the SSO server needs. The outbound guard stays on (no email, ELM, web
+#                  services or GitHub sync; named reviewers only), SMTP stays blocked by policy, cron stays off.
 #   commit         outbound on, external egress on, cron on, nightly backup scheduled (S11: record it in the window log
 #                  FIRST)
 #   fenced         migration.state=fenced (S13 writer fence; verify-fenced.sh must pass)
@@ -32,10 +35,10 @@ on:
         type: choice
         options: [950003-dev, 950003-test, 950003-prod]
       profile:
-        description: bootstrap | empty-install (dev only) | precommit | commit (S11, record it first) | fenced (S13)
+        description: bootstrap | empty-install (dev only) | precommit | review (CP3 SSO) | commit (S11, record it first) | fenced (S13)
         required: true
         type: choice
-        options: [bootstrap, empty-install, precommit, commit, fenced]
+        options: [bootstrap, empty-install, precommit, review, commit, fenced]
       site_host:
         description: temporary (the values file's wwwroot) or public (PUBLIC_WWWROOT, from CP3)
         required: true
@@ -50,7 +53,7 @@ on:
         description: Dev size overlay for the rehearsal pass (dev only; §9 storage budget)
         required: true
         type: choice
-        options: [none, dev-pass-a, dev-pass-b, dev-pass-c]
+        options: [none, dev-pass-a, dev-pass-b, dev-pass-b-ha, dev-pass-c]
       php_digest:
         description: php image digest (sha256:...) from build-exact
         required: true
@@ -159,6 +162,7 @@ jobs:
                            [ -z "$V_FENCE_SERVICE" ] || prof+=(--set migration.fenceService="$V_FENCE_SERVICE") ;;
             empty-install) prof=(--set migration.state=normal "${off[@]}" --set install.enabled=true --set cron.enabled=true --set backup.moodledata.suspended=false) ;;
             precommit)     prof=(--set migration.state=normal "${off[@]}" --set install.enabled=false --set cron.enabled=false --set backup.moodledata.suspended=true) ;;
+            review)        prof=(--set migration.state=normal --set moodle.outbound=off --set networkPolicy.externalEgress=on --set install.enabled=false --set cron.enabled=false --set backup.moodledata.suspended=true) ;;
             commit)        prof=(--set migration.state=normal --set moodle.outbound=on --set networkPolicy.externalEgress=on --set install.enabled=false --set cron.enabled=true --set backup.moodledata.suspended=false) ;;
             fenced)        prof=(--set migration.state=fenced --set migration.fenceService="$V_FENCE_SERVICE" --set install.enabled=false) ;;
           esac
@@ -193,7 +197,7 @@ jobs:
           fi
 
       - name: Version check (S7) — the database must already be at the image's version
-        if: inputs.profile == 'precommit' || inputs.profile == 'commit'
+        if: inputs.profile == 'precommit' || inputs.profile == 'review' || inputs.profile == 'commit'
         run: |
           php='select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "php")'
           image=$(yq -r "$php | .spec.template.spec.containers[0].image" /tmp/rendered.yaml)
@@ -234,12 +238,22 @@ jobs:
               oc get secret "$pg-pguser-moodle" "$pg-pguser-moodle-backup" -n "$NS" -o name 2>/dev/null \
                 || oc get secret -n "$NS" -o name | grep -- "$pg-pguser-"
               ;;
-            empty-install|precommit|commit)
+            empty-install|precommit|review|commit)
               expect=$([ "$IN_PROFILE" = commit ] && echo off || echo on)
+              if [ "$IN_PROFILE" = review ]; then   # V1204: HTTPS out for the SSO exchange, never SMTP, no cron
+                oc get networkpolicy "$RELEASE-allow-app-https-egress" -n "$NS" -o name \
+                  || { echo "::error::review profile: php has no HTTPS egress policy"; exit 1; }
+                ! oc get networkpolicy "$RELEASE-allow-app-smtp-egress" -n "$NS" -o name 2>/dev/null \
+                  || { echo "::error::review profile: the app SMTP policy exists"; exit 1; }
+                [ "$(oc get deploy "$RELEASE-cron" -n "$NS" -o jsonpath='{.spec.replicas}')" = 0 ] \
+                  || { echo "::error::review profile: cron is running"; exit 1; }
+              fi
               pod=$(oc get pods -n "$NS" -l "app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component=php" \
                     --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
               oc exec -i -n "$NS" "$pod" -c php -- sh -c 'cat > /tmp/check-outbound-guard.php' < ops/replatform/check-outbound-guard.php
-              oc exec -n "$NS" "$pod" -c php -- sh -c "cd /var/www/html && php /tmp/check-outbound-guard.php --expect=$expect" ;;
+              oc exec -n "$NS" "$pod" -c php -- sh -c "cd /var/www/html && php /tmp/check-outbound-guard.php --expect=$expect"
+              # §0.11: Moodle's application cache is Valkey, set up by the php pods at start (or the installer)
+              oc exec -n "$NS" "$pod" -c php -- php /usr/local/share/psa/configure-cache.php --check ;;
           esac
 
       - name: Summary

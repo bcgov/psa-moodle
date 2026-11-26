@@ -6,7 +6,7 @@
 # nginx's http{}, so it's defined here.
 log_format main_xff '$remote_addr - $remote_user [$time_local] "$request" '
                     '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
-                    'xff="$http_x_forwarded_for"';
+                    'xff="$http_x_forwarded_for" rid=$request_id';
 
 server {
     listen       8080 default_server;
@@ -57,21 +57,26 @@ server {
         try_files $uri $uri/ /index.php?$query_string;
     }
 
+    # Moodle's background calls (AJAX and web services) keep their own error responses: their callers parse them.
+    location ~ (^/lib/ajax/|^/webservice/|ajax\.php(/|$)) {
+        include /etc/nginx/conf.d/psa-php.inc;
+    }
+
+    # Pages: a PHP failure (500) shows the friendly page below instead of Moodle's technical error. Other codes pass
+    # through untouched, Moodle's own 503 maintenance page (the nightly backup's pause) and its 404s included.
     location ~ [^/]\.php(/|$) {
-        fastcgi_split_path_info  ^(.+?\.php)(/.*)$;
-        if (!-f $document_root$fastcgi_script_name) { return 404; }
+        fastcgi_intercept_errors on;
+        include /etc/nginx/conf.d/psa-php.inc;
+    }
 
-        # ${PHP_UPSTREAM} is filled in at container start by nginx's own envsubst step (C1): the chart sets the
-        # release's php Service; the image's default php:9000 suits Podman compose.
-        fastcgi_pass   ${PHP_UPSTREAM};
-        fastcgi_index  index.php;
-        fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        fastcgi_param  PATH_INFO $fastcgi_path_info;
-        include        fastcgi_params;
-
-        fastcgi_buffers 16 32k;
-        fastcgi_buffer_size 64k;
-        fastcgi_busy_buffers_size 64k;
+    # The friendly error page (§0.11): PHP failed (500), was unreachable (502) or timed out (504). The status code is
+    # kept, so monitoring still counts the error (and no browser caches it); the page names the time and request id,
+    # which the access log records. No add_header here, so the server-level X-PSA headers stay on it.
+    error_page 500 502 504 /psa-error.html;
+    location = /psa-error.html {
+        internal;
+        root /usr/share/nginx/psa;
+        ssi on;
     }
 
     # default_type rather than add_header: a location with its own add_header loses the server-level headers above.

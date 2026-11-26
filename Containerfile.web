@@ -31,6 +31,9 @@ ENV PHP_UPSTREAM=php:9000 \
     NGINX_ENVSUBST_FILTER=^(PHP_UPSTREAM|PSA_RELEASE)$
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY config/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY config/nginx/psa-php.inc.template /etc/nginx/templates/psa-php.inc.template
+# The friendly error page for PHP failures (runbook §0.11), served by nginx alone.
+COPY --chmod=0644 config/nginx/psa-error.html /usr/share/nginx/psa/psa-error.html
 COPY --from=src /var/www/html /var/www/html
 
 # Tighten file ownership so nginx can read static assets but not mutate code.

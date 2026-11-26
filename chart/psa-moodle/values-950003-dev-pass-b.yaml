@@ -1,5 +1,4 @@
 # Dev Pass B sizes (legacy dev's own data: 2.2 GB of files on disk, a small database; runbook §9, review V1007).
 moodledata: { size: 4Gi }
-valkey: { persistence: { size: 1Gi } }
 postgres: { instances: { storage: 3Gi }, pgbackrest: { repoStorage: 5Gi } }
 backup: { moodledata: { size: 5Gi } }

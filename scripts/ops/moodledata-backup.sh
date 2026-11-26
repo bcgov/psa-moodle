@@ -33,7 +33,10 @@ umask 007   # group (gid 0 under OpenShift's restricted SCC) can manage what the
 : "${DRAIN_LIMIT:=300}" "${CAPTURE_LIMIT:=300}" "${GATE_LIMIT:=1800}" "${DRAIN_QUIET:=10}"
 : "${RETAIN:=7}" "${FLOOR:=3}" "${ALERT_PCT:=70}" "${STALE_STAGING_MINUTES:=180}"
 : "${OP_LIMIT:=60}"                      # seconds any single database call may take
-: "${LOCK_KEY:=727368}"                   # pg advisory lock key shared by every run
+: "${LOCK_NS:=1347633474}"               # pg advisory lock, two-integer form: namespace 0x50534142 ("PSAB") ...
+: "${LOCK_KEY:=1}"                        # ... and key (V1202). Moodle's database sessions lock single bigint keys (their
+                                          # session ids), a separate key space; Moodle's lock factory uses the two-integer
+                                          # form under crc32("<dbname>:<prefix>") = 1289808297 for moodle:mdl_, not this.
 # pgBackRest repository information, as JSON, from the Crunchy repository host by its fixed name: the
 # pgbackrest label also matches the backup Jobs' pods, and this job may exec into the repo host only (C8 RBAC).
 : "${PGBACKREST_INFO_CMD:=oc -n ${TARGET_NAMESPACE:-} exec ${POSTGRES_CLUSTER:-}-repo-host-0 -c pgbackrest -- pgbackrest --output=json info}"
@@ -70,8 +73,9 @@ lock_q() {
   return 1
 }
 pq() { PGOPTIONS="-c statement_timeout=$((OP_LIMIT * 1000))" timeout "$OP_LIMIT" psql -X -q -A -t -v ON_ERROR_STOP=1 -c "$1"; }
-holds_lock() { lock_q "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=$LOCK_KEY AND pid=pg_backend_pid() AND granted" && [ "$R" = 1 ]; }
-lock_q "SELECT pg_try_advisory_lock($LOCK_KEY)" && [ "$R" = "t" ] || { log "another run holds the lock; exiting"; exit 0; }
+# The two-integer form shows in pg_locks as classid=namespace, objid=key, objsubid=2 (a bigint key has objsubid=1).
+holds_lock() { lock_q "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=$LOCK_NS AND objid=$LOCK_KEY AND objsubid=2 AND pid=pg_backend_pid() AND granted" && [ "$R" = 1 ]; }
+lock_q "SELECT pg_try_advisory_lock($LOCK_NS, $LOCK_KEY)" && [ "$R" = "t" ] || { log "another run holds the lock; exiting"; exit 0; }
 guard() { holds_lock || { log "lost the database session or the lock: stopping before '$1'"; exit 1; }; }
 
 reopen() {   # remove OUR maintenance file only

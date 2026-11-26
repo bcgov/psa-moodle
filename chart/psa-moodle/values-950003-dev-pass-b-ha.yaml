@@ -1,0 +1,9 @@
+# Dev Pass B at production shape (review V1205): Pass B's sizes with prod's replica counts (php 3, web 3, Postgres 3),
+# for the failover, eviction (PDB) and load tests. Layered on values-950003-dev.yaml by deploy-950003's `overlay` input
+# in place of dev-pass-b, as an upgrade of the Pass B release: Crunchy adds the two replicas and their volumes.
+# Storage 23 GiB; compute about 2,250m / 6,900 MiB of requests, beside legacy dev's 1,380m (runbook §9 "Rehearsal states").
+moodledata: { size: 4Gi }
+postgres: { instances: { replicas: 3, storage: 3Gi }, pgbackrest: { repoStorage: 5Gi } }
+backup: { moodledata: { size: 5Gi } }
+php: { replicas: 3 }
+web: { replicas: 3 }

@@ -1,0 +1,16 @@
+# PHP handling shared by the two PHP locations in default.conf (runbook §0.11). nginx's envsubst step writes this to
+# /etc/nginx/conf.d/psa-php.inc at start; the .inc name keeps it out of nginx's automatic conf.d/*.conf include.
+fastcgi_split_path_info  ^(.+?\.php)(/.*)$;
+if (!-f $document_root$fastcgi_script_name) { return 404; }
+
+# ${PHP_UPSTREAM} is filled in at container start by nginx's own envsubst step (C1): the chart sets the release's php
+# Service; the image's default php:9000 suits Podman compose.
+fastcgi_pass   ${PHP_UPSTREAM};
+fastcgi_index  index.php;
+fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+fastcgi_param  PATH_INFO $fastcgi_path_info;
+include        fastcgi_params;
+
+fastcgi_buffers 16 32k;
+fastcgi_buffer_size 64k;
+fastcgi_busy_buffers_size 64k;

@@ -178,7 +178,11 @@ $(for k in DB_HOST:host DB_PORT:port DB_NAME:dbname DB_USER:user DB_PASSWORD:pas
                 \$n, count(\$missing), count(\$unexpected), count(\$stale), \$bad, moodle_needs_upgrading() ? "YES" : "no",
                 \$enc === false ? "ABSENT" : (\$canary ? "decrypts" : "DOES NOT DECRYPT"));
               foreach (array_slice(\$unexpected, 0, 20) as \$h) echo "unexpected missing \$h\n";
-              exit(\$unexpected || \$stale || \$bad || !\$canary || moodle_needs_upgrading() ? 1 : 0);
+              // V1203: sessions live in Postgres, so a restored database carries the logged-in sessions of its recovery
+              // point, including ones logged out since. Nobody may use them: clear every session before anyone gets in.
+              \$DB->delete_records("sessions");
+              printf("sessions cleared: %d remain\n", \$DB->count_records("sessions"));
+              exit(\$unexpected || \$stale || \$bad || !\$canary || moodle_needs_upgrading() || \$DB->count_records("sessions") ? 1 : 0);
           volumeMounts:
             - { name: moodledata, mountPath: /var/www/moodledata }
             - { name: localcache, mountPath: /mnt/ramdisk }
