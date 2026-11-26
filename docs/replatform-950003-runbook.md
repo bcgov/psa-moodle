@@ -1681,8 +1681,10 @@ created with `--internal`, so it has no route to the internet.
     (`lib/installlib.php` line 521). The fourth attempt, 2026-11-26, failed exactly there with the list empty, after
     installing every plugin. `deploy-950003` now refuses `empty-install` unless the list includes 2. Pass B sets the list
     back to the real reviewers' ids in legacy dev's data.
-  - **Undo:** `helm uninstall psa-moodle --wait` (it removes the PostgresCluster, and Crunchy then removes its pods and
-    volumes); then delete what survives an uninstall by design: PVCs `psa-moodle-moodledata-backup` (resource policy
+  - **Undo:** first delete a failed installer Job if there is one (`oc delete job psa-moodle-install`): Helm never
+    removes a failed hook, and its pods hold the moodledata volume, which then can't be deleted (the second undo,
+    2026-11-26, timed out on exactly that). Then `helm uninstall psa-moodle --wait` (it removes the PostgresCluster, and
+    Crunchy then removes its pods and volumes); then delete what survives an uninstall by design: PVCs `psa-moodle-moodledata-backup` (resource policy
     keep) and `data-psa-moodle-valkey-0` (a StatefulSet volume), and Secrets `psa-moodle-admin` and
     `psa-moodle-valkey-auth` (keep). Verify no object labelled for the release or for `psa-moodle-pg` remains, storage
     is back to its baseline, and `RESTORE_SCOPE=all state-restore.sh <ns> prepassa` reports a match.
