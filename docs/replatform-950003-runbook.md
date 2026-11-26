@@ -1,7 +1,9 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v0.9 for review, 2026-11-25. Nothing in this runbook has been executed** except Phase 0, which was
-> read-only (2026-11-18).
+> **Status: DRAFT v1.0 for review, 2026-11-26.** Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done.
+> On a cluster, only two owner-approved changes have been made, both in legacy **950003-dev**: its missing `redis-proxy`
+> Service restored, and the recovery-package restart proof (§8.3). **Nothing has been deployed into any 950003 namespace,
+> and no step of this runbook has changed test or prod.**
 > v0.2 answered the first review ([replatform-950003-review.md](replatform-950003-review.md), R1–R12, §0).
 > v0.3 added facts from the 2026-11-18 prod mojibake window (§0.1).
 > v0.4 answered the second review ([replatform-950003-rollback-review.md](replatform-950003-rollback-review.md),
@@ -12,8 +14,9 @@
 > v0.7 answered the fifth review ([replatform-950003-v06-review.md](replatform-950003-v06-review.md), V601–V605, §0.5),
 > which cleared **Phase 1 preparation to start**.
 > v0.8 answered the sixth review ([replatform-950003-v07-review.md](replatform-950003-v07-review.md), V701–V705, §0.6).
-> **v0.9 answers the seventh review** ([replatform-950003-v08-review.md](replatform-950003-v08-review.md), V801–V806).
-> §0.7 lists every change.
+> v0.9 answered the seventh review ([replatform-950003-v08-review.md](replatform-950003-v08-review.md), V801–V806, §0.7).
+> **v1.0 reports Phase 1's implementation** (§0.8): what was built, how each piece was tested, what it found, and what is
+> still open before Phase 2.
 > It supersedes the "request a new project set" direction in `README.md` (Current direction) and
 > `docs/quota-request.md`. The plan is to replatform **inside** the existing 950003 namespaces on Silver, using their existing
 > quota plus one temporary increase for prod, then release ad4087 (Gold) and retire a58ce1.
@@ -36,9 +39,10 @@ The service owner is cautious and wants a plan that cannot strand them.
 
 **Please try to break this promise.**
 
-**If you reviewed v0.8,** check first that each of V801–V806 is resolved by the sections listed in §0.7, and that the
-fixes haven't opened new gaps. (Earlier findings: V701–V705 in §0.6, V601–V605 in §0.5, V501–V508 in §0.4, DR01–DR09 in
-§0.3, RB01–RB14 in §0.2.)
+**If you reviewed v0.9,** this round is different: the plan now has working code behind it. Check first that the code
+does what §8 says it does (the paths are in §0.8), then whether Phase 1 is complete enough to start Phase 2's first dev
+step (Pass A, an empty install). Then, as before, try to break the promise. (Earlier findings: V801–V806 in §0.7,
+V701–V705 in §0.6, V601–V605 in §0.5, V501–V508 in §0.4, DR01–DR09 in §0.3, RB01–RB14 in §0.2.)
 
 Look especially for:
 
@@ -248,6 +252,68 @@ Also in v0.9:
   (§5.5), and the static fence page's state in each environment (§5.5, §10, §11);
 - cron's one-minute cadence is explicit (C3) and checked (§15);
 - the fenced profile suspends the backup CronJob (§8.1).
+
+## 0.8 Changes in v1.0 (Phase 1 implementation, 2026-11-25 and 26)
+
+No review findings to answer: v1.0 reports what Phase 1 built, so the eighth review can check the plan against working
+code. Detail and evidence are in the sections listed. Everything ran locally in Podman unless it says otherwise; private
+evidence (dumps, logs, packages) is under `~/Moodle/private-backups/` (S9).
+
+### Owner decisions since v0.9
+| ID | Decision | Where |
+|---|---|---|
+| K1 | **Two-night dev soak,** run alongside Pass B and Pass C, with weekly and rare events forced by hand; test's bail-out window serves as prod's soak with real use. Replaces the one-week soak: **for review in v1.0.** | §9 |
+| K2 | **Windows start at 17:00 Pacific** and may run overnight; the site must be back by business hours. Evidence: 8 weeks of hourly traffic (§5.13). | §5.13, §10, §11 |
+| n/a | **psa-moodle on PHP 8.3.37 and nginx 1.30.8** (security releases); legacy dev, test and prod were already patched by hand. | §5.1, §8.2 |
+| n/a | **Near-daily patching by the owner:** every base image pinned by tag and digest, Dependabot PRs, a daily image scan. | §8.2 |
+
+### Built and tested
+| Item | Result | Code | Where |
+|---|---|---|---|
+| Forward conversion, MariaDB to Postgres (S1) | Prod 607 s, test 59 s; every value identical after a round trip except `log_display`, which `tool_dbtransfer` rebuilds | `ops/replatform/local-pipeline.sh`, `migrate-config.php`, `compare-content.php` | §5.2, §8.4 |
+| Reverse conversion (D2, §14) | Prod 425 s, test 76 s; ICU level-1 collation pre-check (RB08) | `local-pipeline.sh reverse`, `reverse-precheck.sh` | §5.2, §14.0 |
+| Exact code (S7, C10, C13) | Each environment's code rebuilt from public commits and checked against a tree hash of legacy's pods; CI `build-exact` passes for prod | `ops/replatform/exact-code.json`, `build-exact-tree.sh`, `.github/workflows/build-exact.yml` | §5.1, §8.2 |
+| Outbound guard (C5) and install switch (C2) | Guard on: no email, no web services, ELM URLs dead, reviewer-only admins; verified both ways end to end | `config/moodle/config.openshift.php`, `check-outbound-guard.php`, `guard-test.php` | §8.1, §8.4 |
+| Chart C1-C6, fenced profile, Route allowlist, digests | Renders and lints for every values file | `chart/psa-moodle/` | §8.1 |
+| Writer fence and state capture (S13, S14) | Capture is read-only (dev self-test, 2026-11-25); restore is scoped | `state-capture.sh`, `state-restore.sh`, `writer-fence.sh`, `verify-fenced.sh` | §8.3 |
+| Nightly moodledata backup (C8, J1-J4) | First run, nightly run, lock, operator skip, drain limit, gate failure, rotation, damage detection, self-heal and file-half restore all passed | `scripts/ops/moodledata-backup.sh`, `restore-set-files.sh` | §8.4 item 8 |
+| Return tooling (D3) | Dump allowlist check, restricted import account, frozen checksums, switch and unswitch, legacy fence and clean-up | `bailout-*.sh`, `frozen-checksums.sh`, `legacy-*.sh` | §8.3, §8.4 step 6 |
+| The only deploy path into 950003 (C13) | Manual, per GitHub environment with required reviewers; digests only; refuses unless `upgrade.php --is-pending` says no upgrade is needed; never runs `upgrade.php`; checks the guard or the fence afterwards. **Not yet run:** no environments configured | `.github/workflows/deploy-950003.yml` | §8.1 C13 |
+| Patching | Dependabot (daily base images, weekly Actions), daily Trivy scan failing on fixable CRITICAL, one PHP version across Containerfiles; first scan clean | `.github/dependabot.yml`, `.github/workflows/image-scan.yml` | §8.2 |
+| Legacy recovery package and restart proof (S8, RB09) | **Dev, on the cluster, owner-approved:** package taken (598 MB, checksummed); php, web and cron pods replaced; same digests and code, site and cron working | `recovery-package.sh`, `restart-proof.sh` | §8.3 |
+
+### Found during implementation
+- **E7 stops cron unless it ends with an upgrade.** Uninstalling `local_githubsync` blanks `allversionshash`, so Moodle
+  reports an upgrade pending and cron refuses to run. E7 now ends with `admin/cli/upgrade.php --non-interactive`, verified
+  to change only the version hashes and cache revisions (§5.3).
+- **Hidden NULLs.** Legacy holds NULLs in columns Moodle declares NOT NULL (`user.timezone` 4,036 rows, `course.format`
+  1), which stopped the first conversion. The new `normalise-nulls` step writes Moodle's own defaults, on the local copy
+  only (§5.2).
+- **Prod and test differ in three core files,** not 71: the earlier count included git metadata (§5.1).
+- **The backup job's coverage check could pass when it shouldn't.** Busybox `grep -vxF -f <empty file>` matches every
+  line. Found by the owner's damage test, replaced with an awk set difference, and the job now heals a damaged previous set
+  from the live volume (§8.4 item 8). Also: the job must run as the php UID to read `secret/`, and the writer drain
+  counts only client backends.
+- **Red Hat's `oc` client carried CRITICAL vulnerabilities** (4.15: 6; even 4.18.56: 2). The ops image uses upstream
+  `kubectl` 1.32, and `oc` links to it (§8.2).
+- **Legacy dev had been broken since 2026-11-02:** no `redis-proxy` Service, and a proxy stuck since Redis restarted.
+  Every page returned HTTP 500, unseen behind the maintenance Route. Restored with the owner's approval (§8.3).
+- **Legacy web runs nginx 1.31.9** (mainline) in all three environments, from the owner's patch. psa-moodle stays on the
+  1.30.x stable line.
+
+### Still open before Phase 2
+- **Owner setup:** GitHub environments `950003-dev`, `950003-test` and `950003-prod` with required reviewers, and their
+  secrets and variables (§8.1 C13); the 950003 image registry (`EXACT_REGISTRY_REPO`) and its push credentials.
+- **Backup checks that need a cluster:** the V801 sequence with live file activity, a killed run's clean-up, and the
+  real pgBackRest gate (§8.4 item 8). They run in dev.
+- **Prod quota:** the temporary request was submitted 2026-11-25 and is waiting on Platform Services. Dev and test don't
+  need it.
+
+### Asked of this review
+1. Does the code do what §8 says? Above all: the backup job's pause, gate and publish order; the outbound guard; the
+   deploy workflow's version check; and the return tooling's allowlist.
+2. Is K1's two-night soak, with rare events forced by hand, enough?
+3. Is Phase 1 complete enough to start Phase 2 with Pass A (§9)?
 
 ## 1. Summary
 
@@ -1187,8 +1253,8 @@ which happens as its own approved step.
     includes the `config.php` mounted over it, so the package holds credentials and stays private (S9).
   - The `SHA256SUMS` check passes, and the folder is owner-only and read-only.
 
-  *Still open:* the restart proof in legacy dev (§8.4; a cluster change, needs approval), and the test and prod
-  packages, taken close to their windows (§10, §11).
+  *Still open:* the test and prod packages, taken close to their windows (§10, §11). The dev restart proof passed
+  (below).
 - `restart-proof.sh <ns> <package> [--apply]` (S8): read-only checks that each live php, web and cron pod template equals
   the package's, the running digests are the package's copies, the php pod's code matches `code.sha256` file for file,
   the login page renders through the web Service with the site's host name, and cron completed a run in the last
@@ -1902,6 +1968,10 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-25 | **K1** The dev soak is two nights, run alongside Pass B and Pass C, with weekly and rare events forced by hand instead of waited for; test's bail-out window serves as prod's soak with real use (replaces the one-week soak; for review in v1.0) | Owner |
 | 2026-11-25 | **K2** (evidence in §5.13) During the migration weeks the site needs to be available only in business hours, and traffic after 16:00 is negligible. Cutover and return windows start at 17:00 Pacific and may run overnight; latest-abort times are set against the next business morning. J1's pause limits may be raised if Pass B's drains need it | Owner |
 | 2026-11-25 | psa-moodle images on PHP 8.3.37 (security release) and nginx 1.30.8 (CVE-2026-132779), web pinned by digest; legacy 950003-dev, test and prod already patched by hand | Owner |
+| 2026-11-25 | Near-daily patching: base images pinned by tag and digest; Dependabot PRs (PHP 8.3.x and nginx 1.30.x lines held); daily Trivy scan; the ops image uses upstream `kubectl` instead of `oc` (CRITICAL CVEs in the `oc` client) | Owner |
+| 2026-11-25 | Dependabot PRs #9 (GitHub Actions majors) and #10 (Alpine 3.24 for the ops image) merged after local and CI checks | Owner |
+| 2026-11-26 | Approved and done in legacy 950003-dev: restore the missing `redis-proxy` Service (identical to test's) and restart the proxy; then the recovery-package restart proof (`restart-proof.sh --apply`), which passed | Owner |
+| 2026-11-26 | v1.0 written: Phase 1's implementation reported for the eighth review (§0.8) | Owner |
 
 **Phase 0 findings (2026-11-18):** see [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md).
 The facts that change the plan are folded into §5 and §6.
