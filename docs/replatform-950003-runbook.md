@@ -1676,6 +1676,18 @@ created with `--internal`, so it has no route to the internet.
     - pod-kill and PDB behaviour;
     - alerts;
     - **the writer fence and the full shutdown**, and their reverses, with quota measured in each state (RB04, DR04).
+  - ***First run, 2026-11-26 (owner-approved; fifth attempt, `deploy-950003` run 45757308604):*** **installed.**
+    Helm `deployed`; Moodle's installer completed (511 tables); the outbound guard verified on; the login page is served
+    through the restricted temporary Route ("Log in to the site | PSA", HTTP 200). **Legacy dev unchanged:** it matches
+    the `prepassa` capture, and its workload images are identical to the baseline. Measured, against the baseline (dev,
+    Pass A size): requests **+951m CPU, +3,072 MiB memory, +9 GiB storage**. Crunchy's sidecars
+    (`replication-cert-copy`, `pgbackrest`, `pgbackrest-config`) take the namespace's default 50m / 256 MiB each because
+    the chart doesn't size them, so one Postgres instance pod requests 401m / 1,344 MiB and the repo host 100m / 512 MiB:
+    count them in prod's quota (D1). Collation (RB08): `en_US.utf-8`, ctype `en_US.utf-8`, UTF8, PostgreSQL 15.15.
+    Earlier attempts each found a defect, fixed before the next: `oc` missing on the runner; pasted variables breaking
+    the render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning`; the empty reviewer
+    list. Still to fix with the next images: the `X-PSA-Stack` header (C12) isn't set, and the responses expose
+    `server: nginx/1.30.8` and `x-powered-by: PHP/8.3.37`.
   - **The empty install needs `REVIEWER_ADMINS=2`** in the `950003-dev` environment. With outbound off the guard makes
     only the reviewer list site admins, and Moodle's installer creates its admin as user 2 and then calls `get_admin()`
     (`lib/installlib.php` line 521). The fourth attempt, 2026-11-26, failed exactly there with the list empty, after
