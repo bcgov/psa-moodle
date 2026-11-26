@@ -7,10 +7,11 @@
 //                                      rp_encryption_canary. If one exists, it must already decrypt (idempotent).
 //   php encryption-canary.php check    after a restore: the stored value must decrypt, with the restored key, to the
 //                                      constant. A wrong or regenerated key fails (sodium authentication).
-// Run from Moodle's root as the php user. The canary is the only encrypted value on prod and test today (§5.3), so it
+// Run as the php user, from Moodle's root or with MOODLE_ROOT=/var/www/html. The canary is the only encrypted value on prod and test today (§5.3), so it
 // is what makes the key check meaningful. Exit 0 on success, 1 on failure; prints no secret.
 define('CLI_SCRIPT', true);
-require(__DIR__ . '/config.php');
+// From Moodle's root, or anywhere with MOODLE_ROOT set (e.g. copied into /tmp in a pod).
+require((getenv('MOODLE_ROOT') ?: __DIR__) . '/config.php');
 const RP_CANARY = 'psa-moodle encryption canary v1';
 $mode = $argv[1] ?? '';
 // Read the database directly, not get_config(): a restored dataroot may carry a stale config cache.
