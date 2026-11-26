@@ -280,8 +280,8 @@ spec:
 ---
 # C15: ops jobs' Kubernetes API access, in every profile (the backup's `oc exec` into the repo host, the integrity check,
 # the restore rehearsal). On OpenShift OVN, egress policy is evaluated after the kubernetes Service's DNAT, so the
-# destination is expected to be the control-plane nodes on 6443; 443 is allowed too until a dev run with 6443 alone
-# proves it. Then drop 443 and narrow kubeApiCidr to the control-plane addresses (never the external API address).
+# destination is the control-plane nodes on 6443 (never the cluster's external API address). The chart default allows
+# any address on 6443 and 443; the 950003 values narrow it to Silver's node range on 6443 (proved in dev, 2026-11-26).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

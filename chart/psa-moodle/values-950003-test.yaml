@@ -80,3 +80,13 @@ backup:
     enabled: true           # provisioned from the first install (V1004): role, volume, grants
     suspended: true          # scheduled only from the S11 commit point (deploy-950003 commit profile; C8, J1)
     size: 5Gi
+
+# C15: the ops jobs' Kubernetes API rule, narrowed after Pass A. In-cluster clients reach the API through the kubernetes
+# Service (172.30.0.1:443), which OVN translates to the control-plane nodes on 6443 before policy applies.
+# 142.34.194.119 is api.silver's external address, which in-cluster clients never use, so it is not the target. The
+# control-plane addresses can't be read with namespace access; the cluster's nodes and api-int (142.34.151.251) are in
+# 142.34.151.0/24. Proved in 950003-dev 2026-11-26 (integrity check and moodledata backup through this rule; runbook §0.9).
+networkPolicy:
+  egress:
+    kubeApiCidr: "142.34.151.0/24"
+    kubeApiPorts: [6443]

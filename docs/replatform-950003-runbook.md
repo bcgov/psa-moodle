@@ -406,26 +406,32 @@ fourteen findings and the backup-alert correction on 2026-11-26. Every fix was t
   their service account through the `kubernetes` Service (`172.30.0.1:443`), which OVN translates to the
   control-plane nodes on 6443 before policy applies, so narrowing to `142.34.194.119` would have cut them off. The
   control-plane addresses can't be read with namespace access (`endpoints` in `default` and `nodes` are forbidden); the
-  cluster's nodes (`142.34.151.144`–`155`) and `api-int` (`142.34.151.251`) are in `142.34.151.0/24`. So dev's values
-  now try `142.34.151.0/24` on 6443 only, to be proved by one deploy and one integrity-check run; test and prod keep
-  the chart default (any address, 6443 and 443) until it passes. If it fails, 6443 alone is tried with any address,
-  and Platform Services are asked for the control-plane addresses.
+  cluster's nodes (`142.34.151.144`–`155`) and `api-int` (`142.34.151.251`) are in `142.34.151.0/24`. **Proved in dev
+  2026-11-26:** with the rule narrowed to `142.34.151.0/24` on 6443 only, the integrity check (finds the repo host by
+  name, runs `pgbackrest` in it) and a moodledata backup (`oc exec` into the repo host for the gate) both passed. The
+  950003 values for dev, test and prod now carry the narrowed rule; the chart default stays wide for other clusters.
 
 ### Still open in Pass A (2026-11-26)
 - *Every Pass A exercise in §9 has run and passed* (install, egress, both backups, integrity check, paired restore
   drill, pod kills, alerts, writer fence, full shutdown and their reverses). Four follow-ups remain before the review
   that clears Pass B:
-  1. **The ops jobs' API rule** (above): dev's narrowed values, proved by one deploy and one integrity-check run.
+  1. **The ops jobs' API rule** (above). *Done 2026-11-26:* proved in dev on `142.34.151.0/24`, port 6443 only.
   2. **Next images (C12 and version headers), fixed in code 2026-11-26:** nginx sends `X-PSA-Stack: psa-moodle` and
      `X-PSA-Release: <release>` on every response, errors included; `server_tokens off` (`Server: nginx`); PHP's
      `X-Powered-By` is dropped by nginx and `expose_php = Off` in our php.ini (`php.ini-production` leaves it on).
      Tested locally against the pinned nginx and PHP images: the headers on 200, 404 and 502 responses, no versions.
-     Live after `build-exact` and a redeploy.
+     *Done 2026-11-26:* `build-exact` (prod, run 45783721531, commit `8be01b5`) and `deploy-950003` (run 45784565597,
+     owner-approved; empty-install profile, Pass A overlay, no reinstall). Through the temporary Route, 200 and 404
+     responses carry `server: nginx`, `x-psa-stack: psa-moodle` and `x-psa-release: psa-moodle`, and no
+     `x-powered-by`.
   3. **The backup's 162-second drain, fixed in the chart 2026-11-26:** cron runs `cron.php --keep-alive=0`
      (`cron.keepAliveSeconds`). Moodle 4.5 otherwise keeps each `cron.php` connected for 3 minutes polling for ad hoc
      tasks (`\core\cron::DEFAULT_MAIN_PROCESS_KEEPALIVE`), and the drain waits for it. The loop already sleeps
      `intervalSeconds` (60) between passes and skips passes while the backup page is up, so ad hoc tasks now wait up
-     to a minute instead of a second. Proved by the next moodledata backup run by hand after the redeploy.
+     to a minute instead of a second. *Done 2026-11-26:* a moodledata backup run by hand after the redeploy
+     (`psa-moodle-moodledata-backup-manual-2`) **drained in 10 s** (Pass A's first run: 162 s) and published
+     `rp-set-20261126T084511Z-1`; the gate passed on timeline 3 (the cluster had restarted in the pod-kill and shutdown
+     tests). Afterwards the site served 200, every CronJob was active, and legacy dev matched its `prepassa` capture.
   4. **Valkey in prod** is a single replica with no PDB (the pod-kill test: 20 s of HTTP 500s). Owner's decision,
      carried to the next review.
 - **Test and prod** get the same setup later, each by its own approval (their environments, deployer accounts and
@@ -439,7 +445,7 @@ fourteen findings and the backup-alert correction on 2026-11-26. Every fix was t
   in use (legacy dev's own nightly backups) and stay.
 - **Pass A proves on the cluster:** which API port the ops jobs use (then narrow the rule), the gate against the real
   pgBackRest (including a failover), the restricted role's drain with a live request, and the egress matrix live.
-  *Proved, except the narrowed API rule (follow-up 1 above) and the gate across a failover: dev runs one Postgres
+  *Proved, the narrowed API rule included (follow-up 1 above), except the gate across a failover: dev runs one Postgres
   instance in Pass A, so the failover between two sets stays in Pass B's backup matrix.*
 
 ## 1. Summary

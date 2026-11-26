@@ -237,9 +237,9 @@ networkPolicy:
     externalHttpsCidr: "0.0.0.0/0"
     # External SMTP allow CIDR (apps.smtp.gov.bc.ca). Same rationale.
     externalSmtpCidr: "0.0.0.0/0"
-    # Ops jobs' Kubernetes API egress (C15). 6443 is expected after OVN's Service DNAT; 443 is kept until a dev run with
-    # 6443 alone proves it. The CIDR should be the control-plane nodes (not the cluster's external API address);
-    # values-950003-dev.yaml tests a narrowed pair.
+    # Ops jobs' Kubernetes API egress (C15). On OVN the destination is the control-plane nodes on 6443 (after the
+    # kubernetes Service's DNAT), never the cluster's external API address. This default stays wide for other clusters;
+    # the 950003 values narrow it to Silver's node range on 6443 only (proved in 950003-dev, 2026-11-26).
     kubeApiCidr: "0.0.0.0/0"
     kubeApiPorts: [6443, 443]
   # The application's internet egress (C15): "on" or "off". off = php and cron reach nothing outside the cluster.
