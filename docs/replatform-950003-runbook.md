@@ -893,7 +893,8 @@ handling) was closed instead by the director's low-risk clearance (S16).
   - Acceptance uses synthetic records only. Before the commit point, a log check shows no writes by anyone outside the
     reviewer list.
   - The restriction is lifted only as part of the commit point (§13.3) or legacy's reopening (§14.8).
-  - Dev Pass B proves that the router honours the annotation.
+  - Dev Pass B proves that the router honours the annotation. *(Proved 2026-11-26: an allowed address got the page, a
+    phone on cellular was refused, §9 Pass B.)*
 - **S16. A copy of real data is no wider than its source, and is deleted when its pass ends** (owner decision,
   2026-11-26). The data is not anonymized: Pass C exists to prove the real records, files and encryption survive
   conversion and recovery. The privacy question is who can reach a copy and how it is stored and removed. **The owner's
@@ -2106,6 +2107,12 @@ created with `--internal`, so it has no route to the internet.
     62,814 MiB; legacy dev matches `prepassa`; the deploy account kept. v1.4's dev build: `build-exact` run
     45884132438 (4.5.15, commit `befd3f8`). Legacy dev captured as **`prepassb`**. `check-collisions.sh` on the
     bootstrap render with those images and `dev-pass-b`: **PASS**, 0 collisions.
+  - ***Bootstrap, 2026-11-26*** (`deploy-950003` run 45886022456, owner-approved; the gate approved in chat): fenced
+    release installed, Postgres primary ready about 84 s later, Valkey up as a Deployment, both database Secrets
+    created, storage 80,222 MiB (Pass B's 17 GiB), legacy dev matches `prepassb`. The workflow's verify step failed on a
+    race (`oc wait` before Crunchy had created the primary); fixed, and the checks were completed by hand: `FENCED`.
+    **S15 proved: the router enforces the reviewer allowlist.** The temporary Route answered the owner's allowed
+    address (HTTP 200, the maintenance page) and **refused the owner's phone on cellular**, with no data loaded yet.
   - a rollback at **every** checkpoint (CP1, CP2, CP3), ending in exactly the recorded state;
   - a rollback with **new PHP down**, with **new Postgres down**, and after a **failed Helm rollout** (S13; the old site's
     return must not need the new site);
