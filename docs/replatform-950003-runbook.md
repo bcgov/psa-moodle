@@ -1707,6 +1707,17 @@ created with `--internal`, so it has no route to the internet.
     162-second pause is longer than J1's "about a minute", most likely Moodle 4.5's cron keep-alive holding `cron.php` for
     up to 3 minutes; within the 5-minute drain limit, but worth shortening (stop the keep-alive while the backup page is
     up).
+    **Integrity check, run by hand (owner-approved): passed:** repo host found by name; full, daily and hourly backups
+    current; `pgbackrest verify` clean; required tables present.
+    **Paired restore drill (S12, C7, V1012; owner-approved): PASSED** on `rp-drill-2`: Crunchy restored a new cluster to
+    restore point `rp-set-20261126T045919Z-1` (`--type=name --set=<incremental> --target-timeline=1`), the set's files
+    went onto an empty volume, and the check found every referenced file present with the right SHA-1, missing files
+    exactly equal to the recorded gaps (none), no upgrade pending, and **the canary stored before the backup decrypting
+    with the restored key**: the files and the database are a pair. The drill's objects were deleted afterwards
+    (approved) and storage returned to the post-install figure. Three script defects found and fixed on the way: a set
+    with no gaps stopped the script silently (`grep` under `pipefail`); Crunchy rejects `--target-action` in a restore
+    request (it sets it itself), which left the first drill waiting in `ReadyForRestore`; and the check Job ran before
+    Crunchy reset the restored `moodle` role's password to the new Secret, so it now retries (`backoffLimit: 4`).
     Earlier attempts each found a defect, fixed before the next: `oc` missing on the runner; pasted variables breaking
     the render; an empty AlertmanagerConfig recipient; Valkey not available through `m950-learning`; the empty reviewer
     list. Still to fix with the next images: the `X-PSA-Stack` header (C12) isn't set, and the responses expose

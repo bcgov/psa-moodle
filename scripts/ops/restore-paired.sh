@@ -142,7 +142,9 @@ metadata:
   name: $NAME-check
   labels: { rp-restore: "$NAME" }
 spec:
-  backoffLimit: 0
+  # Retries: the restored database still holds the source cluster's role password until Crunchy's next reconcile
+  # resets it to this cluster's Secret, so the first attempt can fail to log in (Pass A drill, 2026-11-26).
+  backoffLimit: 4
   template:
     metadata: { labels: { rp-restore: "$NAME" } }
     spec:
