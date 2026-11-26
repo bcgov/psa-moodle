@@ -56,7 +56,12 @@ else
 fi
 
 if [ -n "$REL" ]; then
-  { helm status "$REL" -n "$NS" 2>&1 | head -8; echo "--- values"; helm get values "$REL" -n "$NS" -o yaml 2>&1; } > "$OUT/helm.txt"
+  # Before the first install (e.g. the pre-Pass A baseline) the release doesn't exist: record that, don't fail.
+  if helm status "$REL" -n "$NS" >/dev/null 2>&1; then
+    { helm status "$REL" -n "$NS" 2>&1 | head -8; echo "--- values"; helm get values "$REL" -n "$NS" -o yaml 2>&1; } > "$OUT/helm.txt"
+  else
+    echo "release $REL: not installed" > "$OUT/helm.txt"
+  fi
 fi
 
 (cd "$OUT" && shasum -a 256 ./*.json ./*.txt > SHA256SUMS)
