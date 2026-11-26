@@ -1200,6 +1200,18 @@ which happens as its own approved step.
   ready, DNS resolves). Not public, because dev's Route points at the maintenance page. Pass B (J3) and the restart proof
   both need legacy dev working, so the fix (create the Service, restart the proxy) comes first.
 
+  *Fixed with the owner's approval, 2026-11-26 00:44Z:* `redis-proxy` Service applied in `950003-dev` (identical to
+  test's), and `redis-proxy` restarted; the login page renders again. Rollback: `oc -n 950003-dev delete service
+  redis-proxy`. The dev package was retaken afterwards (`recovery-package-950003-dev-20261126T004421Z`, 598 MB, now with
+  22 Services).
+
+  ***Restart proof PASSED on legacy dev, 2026-11-26 00:47-00:50Z (owner-approved):*** all five checks passed before;
+  `restart-proof.sh --apply` deleted the php pod, one of three web pods and the cron pod; the replacements were ready in
+  32 s; all five checks passed again on the new pods (same digests, the same 29,741 files, login page HTTP 200, cron
+  completing runs). Log: `private-backups/restart-proof-950003-dev-20261126T004705Z.log`. The "drain a node" repeat is not
+  possible: tenants on the shared Silver cluster cannot cordon or drain nodes. A pod rescheduled to another node is the
+  closest equivalent, and the replacement pods are evidence of it only if they landed elsewhere (not required for S8).
+
 **Return (D3, RB13)**
 - `bailout-dump-check.sh`: accepts only a single-database `mariadb-dump`, without `--databases`. It rejects `USE`,
   `CREATE DATABASE`, `DROP DATABASE` and any statement naming another schema. It reports the table count and checksums.

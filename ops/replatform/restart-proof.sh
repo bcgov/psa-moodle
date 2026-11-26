@@ -24,7 +24,7 @@ HOST=$(jq -r '.items[] | select(.metadata.name == "moodle-web") | .spec.host' "$
 log "package $PKG: checksums ok; site host $HOST"
 
 checks() {
-  local c live pkg pods ids id php
+  local c live pkg pods ids id php cronlog
   for c in php web cron; do
     live=$(oc get deploy "$c" -n "$NS" -o json | jq -S '.spec.template')
     pkg=$(jq -S --arg c "$c" '.items[] | select(.metadata.name == $c) | .spec.template' "$PKG/manifests/deployments.json")
@@ -47,7 +47,9 @@ checks() {
       -H 'X-Forwarded-Proto: https' http://web:8080/login/index.php; echo \" \$(grep -c 'name=\"username\"' /tmp/rp-proof.html)\"; rm -f /tmp/rp-proof.html" \
     | { read -r code fields; [ "$code" = 200 ] && [ "${fields:-0}" -ge 1 ] || fail "login page: HTTP $code, username fields ${fields:-0}"; }
   log "check 4 site: login page renders (HTTP 200) for $HOST"
-  oc logs -n "$NS" deploy/cron --since=5m 2>/dev/null | grep -q 'Cron run completed correctly' || fail "cron: no completed run in 5 minutes"
+  # Read the whole log first: with pipefail, `oc logs | grep -q` fails when grep stops early and oc gets SIGPIPE.
+  cronlog=$(oc logs -n "$NS" deploy/cron --since=5m 2>/dev/null || true)
+  grep -q 'Cron run completed correctly' <<<"$cronlog" || fail "cron: no completed run in 5 minutes"
   log "check 5 cron: completed a run in the last 5 minutes"
 }
 
