@@ -5,12 +5,11 @@ These policies apply only to pods matching app.kubernetes.io/instance:
 <release> so they do NOT affect the coexisting moodle-nginx workloads in the
 same namespace (which carry app=moodle, not app.kubernetes.io/instance).
 
-Phase 4 added egress rules: default-deny-egress + DNS, in-cluster pod-to-pod
-allows (web→php, app→valkey, app→postgres), and external 443/25 allows for
-the OAuth2 SSO flow, plugin runtime egress (githubsync, psaelmsync), and
-the backup alert mailer. External 443/25 use 0.0.0.0/0 by default; if BC Gov
-Platform requires per-FQDN restriction, layer an OpenShift EgressFirewall on
-top of this — see docs/phase4-hardening.md.
+Egress (C9, C15, review V1003): default-deny + DNS, in-cluster allows (web→php, app→valkey, app/ops→postgres), then
+by component: php and cron get internet HTTPS only with networkPolicy.externalEgress=on, and SMTP only when
+moodle.outbound is also on; ops jobs always get the Kubernetes API (6443) and SMTP for alerts; web and install never
+get anything external. Check a render with ops/replatform/egress-matrix.sh. Per-FQDN restriction would need an
+OpenShift EgressFirewall on top (docs/phase4-hardening.md).
 */ -}}
 {{- if .Values.networkPolicy.enabled }}
 ---
@@ -111,7 +110,7 @@ spec:
             matchExpressions:
               - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
               - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
-              - { key: app.kubernetes.io/component, operator: In, values: [php, cron, install, backup-integrity, restore-rehearsal] }
+              - { key: app.kubernetes.io/component, operator: In, values: [php, cron, install, backup-integrity, moodledata-backup] }
       ports:
         - protocol: TCP
           port: 5432
@@ -218,7 +217,7 @@ spec:
     matchExpressions:
       - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
       - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
-      - { key: app.kubernetes.io/component, operator: In, values: [php, cron, install, backup-integrity, restore-rehearsal] }
+      - { key: app.kubernetes.io/component, operator: In, values: [php, cron, install, backup-integrity, moodledata-backup] }
   policyTypes: [Egress]
   egress:
     - to:
@@ -228,22 +227,23 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+{{- $ext := include "psa-moodle.externalEgress" . }}
+{{- if eq $ext "on" }}
 ---
-# External HTTPS (443) — covers the kube API server (oc/kubectl from ops Jobs),
-# the OAuth2 IdP (loginproxy.gov.bc.ca etc.), api.github.com (local_githubsync),
-# and the ELM endpoint (local_psaelmsync). Scoped broadly because k8s
-# NetworkPolicy can't express FQDN allowlists — that's an OpenShift
-# EgressFirewall job if Platform requires it.
+# C15: the APPLICATION's internet egress, php and cron only, and only with networkPolicy.externalEgress=on (from the
+# S11 commit point): the OAuth 2 IdP's server-side calls and the ELM/CData endpoints. Web and install never get it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "psa-moodle.fullname" . }}-allow-external-https-egress
+  name: {{ include "psa-moodle.fullname" . }}-allow-app-https-egress
   labels:
     {{- include "psa-moodle.labels" . | nindent 4 }}
 spec:
   podSelector:
-    matchLabels:
-      {{- include "psa-moodle.selectorLabels" . | nindent 6 }}
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [php, cron] }
   policyTypes: [Egress]
   egress:
     - to:
@@ -252,13 +252,13 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+{{- if eq (include "psa-moodle.outbound" .) "on" }}
 ---
-# External SMTP (25) — backup alert mailer to apps.smtp.gov.bc.ca. Scoped to
-# the ops components that actually send alerts; nothing else has SMTP config.
+# C9: Moodle's own mail (php and cron) to the SMTP relay, only when both moodle.outbound and externalEgress are on.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "psa-moodle.fullname" . }}-allow-external-smtp-egress
+  name: {{ include "psa-moodle.fullname" . }}-allow-app-smtp-egress
   labels:
     {{- include "psa-moodle.labels" . | nindent 4 }}
 spec:
@@ -266,7 +266,59 @@ spec:
     matchExpressions:
       - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
       - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
-      - { key: app.kubernetes.io/component, operator: In, values: [backup-integrity, restore-rehearsal, moodledata-snapshot, moodledata-snapshot-prune] }
+      - { key: app.kubernetes.io/component, operator: In, values: [php, cron] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.egress.externalSmtpCidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backup.alerts.smtpPort }}
+{{- end }}
+{{- end }}
+---
+# C15: ops jobs' Kubernetes API access, in every profile (the backup's `oc exec` into the repo host, the integrity check,
+# the restore rehearsal). On OpenShift OVN, egress policy is evaluated after the kubernetes Service's DNAT, so the
+# destination is expected to be the API servers on 6443; 443 is allowed too until Pass A shows which one is used. Then
+# drop the unused port and narrow kubeApiCidr to the API servers' addresses.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-ops-kube-api-egress
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [moodledata-backup, backup-integrity, restore-rehearsal, moodledata-snapshot, moodledata-snapshot-prune] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.egress.kubeApiCidr | quote }}
+      ports:
+        {{- range .Values.networkPolicy.egress.kubeApiPorts }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+---
+# C15: ops alert delivery (alert.sh) to the SMTP relay, in every profile, so a failure before the commit point still
+# reaches the owner. Application pods are not selected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "psa-moodle.fullname" . }}-allow-ops-smtp-egress
+  labels:
+    {{- include "psa-moodle.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "psa-moodle.name" . }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [moodledata-backup, backup-integrity, restore-rehearsal, moodledata-snapshot, moodledata-snapshot-prune] }
   policyTypes: [Egress]
   egress:
     - to:

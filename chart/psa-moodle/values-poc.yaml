@@ -61,6 +61,7 @@ cron:
 # 5353 too (see templates/networkpolicy.yaml), which resolves it. Verified on an
 # isolated probe pod and on the live php pod.
 networkPolicy:
+  externalEgress: "on"           # the PoC sends mail and reaches SSO (C15)
   egress:
     enabled: true
 

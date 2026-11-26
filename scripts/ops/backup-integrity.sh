@@ -22,7 +22,9 @@ set -euo pipefail
 : "${POSTGRES_CLUSTER:?POSTGRES_CLUSTER not set}"
 : "${POSTGRES_USER_SECRET:?POSTGRES_USER_SECRET not set}"
 : "${TARGET_NAMESPACE:?TARGET_NAMESPACE not set}"
-: "${MAX_FULL_BACKUP_AGE_HOURS:=30}"   # alert if no full backup in N hours
+: "${MAX_FULL_BACKUP_AGE_HOURS:=30}"   # alert if no full backup in N hours (950003: weekly fulls, so 192)
+: "${MAX_DAILY_BACKUP_AGE_HOURS:=30}"  # alert if no full or differential backup in N hours (daily differentials)
+: "${MAX_ANY_BACKUP_AGE_HOURS:=6}"     # alert if no backup of any type in N hours (hourly incrementals)
 
 # Canonical Moodle tables: must exist in every healthy DB. This is exactly the
 # list Warren flagged as missing from the April backups.
@@ -78,8 +80,10 @@ psql_q() { psql -X -A -t -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"
 
 # --- 1. pgBackRest state -------------------------------------------------------
 # pgBackRest runs inside the Crunchy repo-host pod; we exec there to query it.
-REPO_POD="$(oc -n "$TARGET_NAMESPACE" get pod -l "postgres-operator.crunchydata.com/cluster=$POSTGRES_CLUSTER,postgres-operator.crunchydata.com/pgbackrest=" -o name | head -1)"
-[ -n "$REPO_POD" ] || fail "no pgBackRest pod found for cluster $POSTGRES_CLUSTER"
+# The repo host by its fixed name: the pgbackrest label also matches the operator's backup Job pods, which may have
+# completed (exec into them fails).
+REPO_POD="pod/$POSTGRES_CLUSTER-repo-host-0"
+oc -n "$TARGET_NAMESPACE" get "$REPO_POD" >/dev/null 2>&1 || fail "no pgBackRest repo host $REPO_POD for cluster $POSTGRES_CLUSTER"
 
 log "Reading pgbackrest info from $REPO_POD"
 PGB_INFO_JSON="$(oc -n "$TARGET_NAMESPACE" exec "$REPO_POD" -c pgbackrest -- pgbackrest --output=json info)"
@@ -97,6 +101,12 @@ log "Last full backup completed ${AGE_HOURS}h ago"
 if [ "$AGE_HOURS" -gt "$MAX_FULL_BACKUP_AGE_HOURS" ]; then
   fail "last full backup is ${AGE_HOURS}h old (threshold ${MAX_FULL_BACKUP_AGE_HOURS}h)"
 fi
+# The weekly full alone would leave a week unwatched: check the daily and hourly cadence too.
+age_of() { echo "$PGB_INFO_JSON" | jq -r --argjson now "$NOW_EPOCH" "[ .[0].backup[] | select($1) | .timestamp.stop ] | max // 0 | (\$now - .) / 3600 | floor"; }
+DAILY_AGE=$(age_of '.type == "full" or .type == "diff"'); ANY_AGE=$(age_of 'true')
+log "Newest full or differential: ${DAILY_AGE}h ago; newest backup of any type: ${ANY_AGE}h ago"
+[ "$DAILY_AGE" -le "$MAX_DAILY_BACKUP_AGE_HOURS" ] || fail "no full or differential backup for ${DAILY_AGE}h (threshold ${MAX_DAILY_BACKUP_AGE_HOURS}h)"
+[ "$ANY_AGE" -le "$MAX_ANY_BACKUP_AGE_HOURS" ] || fail "no backup of any type for ${ANY_AGE}h (threshold ${MAX_ANY_BACKUP_AGE_HOURS}h)"
 
 # Any backup in non-ok status?
 NOT_OK="$(echo "$PGB_INFO_JSON" | jq -r '.[0].backup[] | select(.error == true or .annotation.ok == "false") | .label')"

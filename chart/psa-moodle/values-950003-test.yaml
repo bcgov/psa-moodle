@@ -51,10 +51,13 @@ postgres:
     incrementalSchedule: "0 * * * *"
 
 backup:
+  integrity:
+    maxFullBackupAgeHours: 192   # weekly fulls plus a day (review correction; daily and hourly cadence checked too)
   restoreRehearsal:
     enabled: false           # never in test or prod during the parallel run (G3, C7)
   moodledataSnapshot:
     enabled: false           # VolumeSnapshots don't suit file storage (C16); the C8 nightly backup replaces it
   moodledata:
-    enabled: false           # true from the S11 commit-point upgrade (C8, J1)
+    enabled: true           # provisioned from the first install (V1004): role, volume, grants
+    suspended: true          # scheduled only from the S11 commit point (deploy-950003 commit profile; C8, J1)
     size: 5Gi

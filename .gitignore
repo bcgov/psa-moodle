@@ -22,3 +22,4 @@ themes/
 
 # Local quota evidence exports; share reviewed attachments with Platform Services.
 artifacts/quota-evidence/
+__pycache__/

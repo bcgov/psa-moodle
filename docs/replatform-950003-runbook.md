@@ -1,7 +1,9 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v1.0 for review, 2026-11-26.** Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done.
-> Nine tools this runbook specified were found missing on 2026-11-26 and written and tested locally the same day (§0.8).
+> **Status: DRAFT v1.1, 2026-11-26.** Phase 0 (read-only, 2026-11-18) and Phase 1's local work are done. v1.1 answers
+> the eighth review ([replatform-950003-v10-review.md](replatform-950003-v10-review.md), V1001–V1014, §0.9): every
+> finding is fixed in code and tested locally; the parts only a cluster can prove are listed for Pass A and Pass B.
+> On a cluster, only two owner-approved changes have been made, both in legacy **950003-dev** (§8.3).
 > On a cluster, only two owner-approved changes have been made, both in legacy **950003-dev**: its missing `redis-proxy`
 > Service restored, and the recovery-package restart proof (§8.3). **Nothing has been deployed into any 950003 namespace,
 > and no step of this runbook has changed test or prod.**
@@ -16,8 +18,9 @@
 > which cleared **Phase 1 preparation to start**.
 > v0.8 answered the sixth review ([replatform-950003-v07-review.md](replatform-950003-v07-review.md), V701–V705, §0.6).
 > v0.9 answered the seventh review ([replatform-950003-v08-review.md](replatform-950003-v08-review.md), V801–V806, §0.7).
-> **v1.0 reports Phase 1's implementation** (§0.8): what was built, how each piece was tested, what it found, and what is
-> still open before Phase 2.
+> v1.0 reported Phase 1's implementation (§0.8).
+> **v1.1 answers the eighth review** (V1001–V1014 and a backup-alert correction, §0.9), with five more defects found
+> while fixing them.
 > It supersedes the "request a new project set" direction in `README.md` (Current direction) and
 > `docs/quota-request.md`. The plan is to replatform **inside** the existing 950003 namespaces on Silver, using their existing
 > quota plus one temporary increase for prod, then release ad4087 (Gold) and retire a58ce1.
@@ -39,6 +42,10 @@ The service owner is cautious and wants a plan that cannot strand them.
   prod. The frozen legacy database is never written, so a failed return cannot strand us.
 
 **Please try to break this promise.**
+
+**If you reviewed v1.0,** check first that each of V1001–V1014 is resolved by the code and tests listed in §0.9, and
+that the five further defects found while fixing them (§0.9) are really fixed. Then re-check the disposition: is a
+narrowly scoped empty Pass A now safe to start?
 
 **If you reviewed v0.9,** this round is different: the plan now has working code behind it. Check first that the code
 does what §8 says it does (the paths are in §0.8), then whether Phase 1 is complete enough to start Phase 2's first dev
@@ -326,6 +333,50 @@ evidence (dumps, logs, packages) is under `~/Moodle/private-backups/` (S9).
    deploy workflow's version check; and the return tooling's allowlist.
 2. Is K1's two-night soak, with rare events forced by hand, enough?
 3. Is Phase 1 complete enough to start Phase 2 with Pass A (§9)?
+
+## 0.9 Changes in v1.1 (eighth review, 2026-11-26)
+
+The eighth review's disposition: **do not execute v1.0 as written; correct isolation, deployment bootstrap and the
+rehearsal capacity plan, then a narrowly scoped empty dev Pass A; test and prod remain no-go.** The owner accepted all
+fourteen findings and the backup-alert correction on 2026-11-26. Every fix was tested locally, **as the restricted
+`moodle-backup` role where a database role matters** (the review's point that superuser-backed tests prove nothing).
+
+### Findings
+| Finding | What changed | Tested | Where |
+|---|---|---|---|
+| V1001 the drain can't see Moodle's sessions | Counts the application role's sessions on the moodle database (`usename`, `datname`), which the restricted role can see; `backend_type` is NULL to it | Reproduced as `moodle-backup`: old count 0, new 1 with a Moodle session open; a held session now hits the drain limit and skips | `scripts/ops/moodledata-backup.sh` |
+| V1002 the gate doesn't prove the restore point is recoverable | New `pgbackrest-gate.sh`: live system identifier matched to the repository's database; base backup on the restore point's timeline chain (per `.history`) and before its switch point; every WAL segment from the base to the restore point's segment, closed with `pg_switch_wal()`; `fail` stops at once, `wait` until the gate limit | 12 synthetic repositories, including the review's timeline-2-versus-3 case (never passes), a failover (passes), a missing segment, another database, an unrelated or post-switch base. **Real pgBackRest: Pass A** | `scripts/ops/pgbackrest-gate.sh` |
+| V1003 `externalEgress=off` isn't implemented | Egress by component: php and cron get HTTPS only with `externalEgress=on`, SMTP only with outbound on too; web and install never get anything external; ops jobs always get the Kubernetes API (6443, and 443 until Pass A shows which) and SMTP for alerts; `moodledata-backup` reaches Postgres. A bad value fails the render | `scripts/chart-egress-matrix.sh`: precommit and commit pass their own expectations and fail each other's; v1.0's chart fails 6 checks (it also never allowed 6443, so ops jobs couldn't have reached the API). **Live: Pass A** | `templates/networkpolicy.yaml`, `scripts/chart-egress-matrix.sh` |
+| V1004 precommit removes the backup role, volume and grant | The role, volume, grants and CronJob exist from the first install; precommit only suspends the schedule (`backup.moodledata.suspended`). The `mdl_files` grant is `scripts/ops/backup-role-grants.sql`, which also proves the role has nothing broader | Renders: role, grant and volume in every state; schedule suspended before S11, running after, suspended when fenced. The grant script passes, and fails (exit 3) on an over-broad grant | chart, `scripts/ops/backup-role-grants.sql`, §13.2 |
+| V1005 state restore reopens before maintenance; scope by default | Order: env and ConfigMaps, replicas except cron, wait for php, maintenance (CLI to web via `--enableold` then removing the file: never unprotected), cron and CronJobs, Routes last. `RESTORE_SCOPE` is required (`all` or a list) | The review's scenario with a mocked `oc`: maintenance, maintenance, cron, Route, in that order; no scope refuses; `routes` touches only the Route | `ops/replatform/state-restore.sh`, §13.4, §14 |
+| V1006 clean-up's drain misses sleeping connections | Counts every connection of the application account, idle ones included (legacy runs with `dbpersist => 0`), **on every Galera node** (a further defect: the Service spreads connections over 5 nodes, and one node's processlist saw only its own); rechecks maintenance and drain on resume | An idle connection: old query 0, new 1, 0 after it ends. **All nodes: Pass B** | `ops/replatform/legacy-cleanup.sh`, `rp-mariadb-target.sh` |
+| V1007 the rehearsals don't fit dev's storage | A storage budget per pass (§9) and size overlays chosen by `deploy-950003`'s `overlay` input: Pass A 9 GiB, Pass B 18, Pass C 24 (plus a 4 GiB fixture), against 28.66 GiB free (34.66 if the two unmounted 2021 PVCs are deleted, owner decision pending) | Renders and totals per overlay | `values-950003-dev-pass-*.yaml`, §9 |
+| V1008 no bootstrap path; commit undoes CP3's host | `deploy-950003` profiles `bootstrap` (fenced: Postgres, volumes, Secrets and the backup role, no app) and `empty-install` (dev only, Pass A); every run states `site_host` (temporary or `PUBLIC_WWWROOT`) and is fully specified (no `--reuse-values`); a run that would move a deployed public wwwroot back stops unless `allow_host_change` | actionlint; renders | `.github/workflows/deploy-950003.yml` |
+| V1009 the pause limit is checked only between files | Every operation in the pause is bounded by the time left (`timeout`), database calls by `statement_timeout`; the maintenance file is checked before each step and before reopening; losing it voids the run | The file removed mid-drain: run void, nothing published | `moodledata-backup.sh` |
+| V1010 inherited files aren't checked | SHA-1 of every file in the set, inherited ones included, before certifying; a damaged one is unlinked, fetched again and every set sharing it is marked `DAMAGED` | A same-size corruption under its original name: detected, re-fetched, published correct, marked | `moodledata-backup.sh` |
+| V1011 3- and 5-day alerts unused; unhandled failures silent | An `EXIT` trap alerts on any exit no `die()` reported (with the failing line); `moodledata-pair-age.sh` runs daily at 09:00 as its own CronJob and alerts at 3 days, escalates to the owner at 5 or when no usable pair exists | A read-only `sets/` made `mv` fail: alerted with the line; the watch's five cases | `moodledata-backup.sh`, `moodledata-pair-age.sh` |
+| V1012 the canary proves nothing; gaps compared by count | `encryption-canary.php create` once at load (§13.2); after a restore the stored value must decrypt with the restored key. Missing files must equal the set's `source-gaps.txt` by hash | A regenerated key fails, the live key and a restored set's key pass; the 62 gap hashes reach the check | `scripts/ops/encryption-canary.php`, `restore-paired.sh` |
+| V1013 E7's upgrade runs before the version check | `version-compare.php` compares core and all 454-455 plugin versions with the code before any write; E7's `upgrade.php` may change only the documented settings (`allcomponenthash`, `allversionshash`, `jsrev`, `langrev`, `localcachedirpurged`, `registrationpending`, `scheduledtaskreset`, `templaterev`, `themerev`, a theme's `themerev`) | Prod copy passes; injected core, plugin and missing-code differences stop it; test's untouched dump runs through E7 within the allowlist | `local-pipeline.sh`, `version-compare.php` |
+| V1014 the dump allowlist accepts appended statements | `dump-statements.py` parses every INSERT line as one complete statement of literal values | Accepts a valid dump (with `; INSERT ...` inside a string) and the real 89 MB prod return dump (9 s); rejects an appended INSERT, an appended `DROP DATABASE`, an unterminated string | `bailout-dump-check.sh`, `dump-statements.py` |
+| Alert correction: 30 h full-backup limit with weekly fulls | 950003: full 192 h; plus newest full-or-differential 30 h and any backup 6 h | Renders | `backup-integrity.sh`, values |
+
+### Found while fixing them
+- **The chart's backup role name would have failed Pass A's first install:** Crunchy user names allow only lowercase
+  letters, digits and hyphens (`oc explain postgrescluster.spec.users.name`). Renamed `moodle-backup`; SQL quotes it.
+- **`backup-integrity.sh` found the repo host by the `pgbackrest` label,** which also matches the operator's backup Job
+  pods; it now uses `<cluster>-repo-host-0`, like the backup job.
+- **v1.0's egress policies never allowed port 6443,** so the ops jobs couldn't have reached the API at all (V1003).
+- **One Galera node's processlist is not the cluster's** (V1006, above).
+- **E7 on a reused scratch dataroot reported "Unknown plugin" and the pipeline carried on;** it now clears the scratch
+  caches first and stops unless every `local_githubsync` row is gone.
+
+### Still open before Pass A
+- **Owner setup** (unchanged from §0.8): GitHub environments with required reviewers, their secrets and variables
+  (now including `PUBLIC_WWWROOT`), and the 950003 image registry.
+- **Owner decision:** delete legacy dev's two unmounted 2021 PVCs, `db-backup-data` (5 GiB) and `db-backup-verification`
+  (1 GiB). The other three backup PVCs are in use (legacy dev's own nightly backups) and stay.
+- **Pass A proves on the cluster:** which API port the ops jobs use (then narrow the rule), the gate against the real
+  pgBackRest (including a failover), the restricted role's drain with a live request, and the egress matrix live.
 
 ## 1. Summary
 
@@ -982,7 +1033,7 @@ which happens as its own approved step.
     references, on a `netapp-file-backup` PVC, 7 retained, taken during a short **backup pause** (J1).
     - *Built 2026-11-25:* `scripts/ops/moodledata-backup.sh` (ops image) and `templates/cronjob-moodledata-backup.yaml`
       (`backup.moodledata.*`): the PVC (kept on uninstall), its own ServiceAccount allowed to exec into
-      `<cluster>-repo-host-0` only, the Crunchy user `moodle_backup` (EXECUTE on `pg_create_restore_point` at bootstrap;
+      `<cluster>-repo-host-0` only, the Crunchy user `moodle-backup` (EXECUTE on `pg_create_restore_point` at bootstrap;
       `SELECT` on `mdl_files` granted in the cutover's load step, and the job alerts clearly without it), 02:30
       `America/Vancouver`, a pod-level deadline of 3600 s, suspended when fenced. The cron loop skips its tick during a
       backup pause and removes a backup page older than 15 minutes, never an operator's. pgBackRest's retention type and
@@ -1556,10 +1607,25 @@ created with `--internal`, so it has no route to the internet.
       admin account, because SSO is registered only for the target's own hostnames;
     - an egress NetworkPolicy that selects only the fixture's pods and allows DNS and legacy dev's Galera pods on port
       3306, nothing else. Before loading, confirm no other policy grants those pods egress;
-    - dev's storage (28.66 GiB free) holds one fixture at a time beside Pass C's new stack; Pass A's measurements confirm
-      it. Each fixture is removed after its pass.
+    - storage: see the budget below; one fixture at a time, removed after its pass.
+- **Storage budget for dev (V1007).** Free 28.66 GiB (2026-11-25), 34.66 GiB if the two unmounted 2021 PVCs are deleted.
+  PVCs can't shrink, so between passes the release is uninstalled **and its PVCs deleted**, including the backup PVC,
+  which `helm.sh/resource-policy: keep` otherwise preserves. Sizes come from `deploy-950003`'s `overlay` input:
+
+  | State | New stack | Other | Total |
+  |---|---|---|---|
+  | Pass A (`dev-pass-a`) | 9 GiB (moodledata 1, Valkey 1, Postgres 2, repository 3, backup 2) | none | 9 GiB |
+  | Pass B (`dev-pass-b`) | 18 GiB (4, 1, 3, 5, 5) | none | 18 GiB |
+  | Pass C (`dev-pass-c`) | 24 GiB (5, 1, 4, 8, 6) | fixture moodledata 4 GiB | 28 GiB |
+  | Pass C paired-restore drill | 24 GiB | after the fixture is removed: restored Postgres 4 + restored moodledata 5 | 33 GiB |
+
+  The fixture's database lives in legacy dev's existing Galera volumes (check their free space first), so it adds no
+  PVC. With 28.66 GiB free the drill doesn't fit; with 34.66 it does, with 1.66 GiB to spare. Measure actual use in
+  Pass A and correct the overlays before Pass B.
 - **Pass A: coexistence with an empty install.**
-  - `helm install psa-moodle` with `install.enabled=true`, the temporary host, `outbound=off` and `externalEgress=off`.
+  - `check-collisions.sh` first. Then `deploy-950003` with profile `empty-install`, `site_host=temporary`, overlay
+    `dev-pass-a`: the installer, outbound off, external egress off. Then `backup-role-grants.sql` and
+    `encryption-canary.php create`.
   - Verify the legacy object list and the legacy site are **unchanged**; compare before and after.
   - Record **admitted** requests of every pod, including sidecars, rollout surge and backup Jobs, **in the quota class each
     one is actually charged to** (DR07). These numbers finalise the D1 request (§5.4).
@@ -1761,9 +1827,9 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
 ### 13.2 Load, check, switch (R7, R8)
 | T | Step | Verify | Undo |
 |---|---|---|---|
-| T+? | Scale the new stack to the target shape within quota (§11.2) | Pods ready; quota not exceeded | §13.4 |
-| T+? | `pg_restore` into the new primary, then `GRANT SELECT ON mdl_files TO moodle_backup` (the nightly backup's role, C8); `compare-content.sh` against the frozen source; `check-filedir` | Only expected differences | Drop and recreate the new database; then §13.4 |
-| T+? | Site in **web** maintenance; purge caches; rebuild the search index; `check-outbound-guard.php` | No pending upgrade; guard values correct | n/a |
+| T+? | `deploy-950003` profile `bootstrap` (fenced: Postgres, volumes, Secrets and the backup role; no application), at the target shape within quota (§11.2) | Primary ready; quota not exceeded | §13.4 |
+| T+? | `pg_restore` into the new primary, then `scripts/ops/backup-role-grants.sql` (grants SELECT on `mdl_files` to `moodle-backup` and checks the role has nothing broader) (the nightly backup's role, C8); `compare-content.sh` against the frozen source; `check-filedir` | Only expected differences | Drop and recreate the new database; then §13.4 |
+| T+? | `deploy-950003` profile `precommit`, `site_host=temporary`. Site in **web** maintenance; purge caches; rebuild the search index; `check-outbound-guard.php`; `encryption-canary.php create` (V1012; after `compare-content`, so the canary is not a difference) | No pending upgrade; guard values correct; canary decrypts | n/a |
 | T+? | Re-verify the temporary Route's restriction (in place since creation, S15); checks by named reviewers through it, with wwwroot on the temporary host | Every response carries `X-PSA-Stack: psa-moodle`; other addresses are refused; a non-reviewer admin is refused | n/a |
 | **CP2** | **Go/no-go: does the new site work for admins?** | | §13.4 |
 | T+? | Generate exact Route undo patches from the captured YAML. `helm upgrade` wwwroot = public hostname (still maintenance, cron 0, guard on) | Pods ready | `helm rollback` |
@@ -1795,7 +1861,7 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
    - move legacy to web maintenance **behind that restriction** (S14).
 
    SSO works because these are the registered hostnames.
-4. **Separate approval: `state-restore.sh precutover` (S14).** It restores, exactly as captured and without the restriction:
+4. **Separate approval: `RESTORE_SCOPE=all state-restore.sh precutover` (S14).** It restores, exactly as captured and without the restriction:
    - maintenance mode (prod: off; test: whatever was recorded, possibly web maintenance);
    - cron replicas;
    - both Routes.
@@ -1915,7 +1981,7 @@ fence. Abandonment must work **even when legacy PHP or Galera is what failed**, 
 2. **`verify-legacy-fenced.sh`** (no PHP, no SQL) must pass: no Route reaches legacy (V704). This is the only legacy
    precondition for resuming. It stops new ingress; work legacy had already accepted is dealt with by cleanup step 5.1.
 3. **Resume the new stack:** `writer-unfence.sh` (plus `full-start.sh` if a full shutdown ran): the normal profile,
-   `outbound=on`, cron on. Then `state-restore.sh prereturn` for the Routes, which sends them back to the new stack, and
+   `outbound=on`, cron on. Then `RESTORE_SCOPE=routes state-restore.sh prereturn` for the Routes, which sends them back to the new stack, and
    `maintenance.php --disable` on the new site.
 4. **ELM reconciliation for the fence interval** (§14.9, V605), even though the return was abandoned.
 5. **Legacy cleanup, strictly in order** (`legacy-cleanup.sh`, V702). Each step needs the previous one to have succeeded:
@@ -2036,6 +2102,8 @@ If the new site cannot resume and the return cannot complete:
 | 2026-11-25 | Dependabot PRs #9 (GitHub Actions majors) and #10 (Alpine 3.24 for the ops image) merged after local and CI checks | Owner |
 | 2026-11-26 | Approved and done in legacy 950003-dev: restore the missing `redis-proxy` Service (identical to test's) and restart the proxy; then the recovery-package restart proof (`restart-proof.sh --apply`), which passed | Owner |
 | 2026-11-26 | v1.0 written: Phase 1's implementation reported for the eighth review (§0.8) | Owner |
+| 2026-11-26 | Eighth review (Codex): do not execute v1.0; correct isolation, bootstrap and capacity, then a narrow empty dev Pass A. Accept V1001–V1014 and the backup-alert correction into v1.1 | Owner |
+| 2026-11-26 | Legacy dev's backup PVCs: keep the three in use (its own nightly backups); deleting the two unmounted 2021 PVCs (6 GiB) is proposed, pending approval | Owner |
 
 **Phase 0 findings (2026-11-18):** see [replatform-950003-phase0-findings.md](replatform-950003-phase0-findings.md).
 The facts that change the plan are folded into §5 and §6.

@@ -57,3 +57,6 @@ backup:
   moodledataSnapshot:
     snapshotClass: ""
     retentionDays: 14
+
+networkPolicy:
+  externalEgress: "on"           # the PoC sends mail and reaches SSO (C15)

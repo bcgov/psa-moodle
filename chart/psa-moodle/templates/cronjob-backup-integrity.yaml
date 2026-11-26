@@ -43,6 +43,10 @@ spec:
                 {{- include "psa-moodle.opsEnv" . | nindent 16 }}
                 - name: MAX_FULL_BACKUP_AGE_HOURS
                   value: {{ .Values.backup.integrity.maxFullBackupAgeHours | quote }}
+                - name: MAX_DAILY_BACKUP_AGE_HOURS
+                  value: {{ .Values.backup.integrity.maxDailyBackupAgeHours | default 30 | quote }}
+                - name: MAX_ANY_BACKUP_AGE_HOURS
+                  value: {{ .Values.backup.integrity.maxAnyBackupAgeHours | default 6 | quote }}
               resources:
                 {{- toYaml .Values.backup.integrity.resources | nindent 16 }}
               securityContext:

@@ -233,6 +233,13 @@ networkPolicy:
     externalHttpsCidr: "0.0.0.0/0"
     # External SMTP allow CIDR (apps.smtp.gov.bc.ca). Same rationale.
     externalSmtpCidr: "0.0.0.0/0"
+    # Ops jobs' Kubernetes API egress (C15). 6443 is expected after OVN's Service DNAT; 443 is kept until Pass A shows
+    # which is used. Then drop the other and narrow the CIDR to the API servers.
+    kubeApiCidr: "0.0.0.0/0"
+    kubeApiPorts: [6443, 443]
+  # The application's internet egress (C15): "on" or "off". off = php and cron reach nothing outside the cluster.
+  # 950003: off until the S11 commit point (deploy-950003's precommit profile); the PoC values turn it on.
+  externalEgress: "off"
 
 # --- Pod security / OpenShift SCC ----------------------------------------------
 # OpenShift's restricted-v2 SCC reassigns UIDs and fsGroup per namespace.
@@ -275,7 +282,9 @@ backup:
     enabled: true
     # 90 min after the pgBackRest full at 02:00 (postgres.pgbackrest.fullSchedule).
     schedule: "30 3 * * *"
-    maxFullBackupAgeHours: 30
+    maxFullBackupAgeHours: 30      # 950003 values: 192 (weekly fulls; review correction)
+    maxDailyBackupAgeHours: 30     # newest full or differential
+    maxAnyBackupAgeHours: 6        # newest backup of any type (hourly incrementals)
     resources:
       requests: { cpu: 50m, memory: 128Mi }
       limits:   { memory: 512Mi }
@@ -292,14 +301,23 @@ backup:
   # Nightly moodledata backup with a short writer pause (replatform runbook C8, J1). Enabled from the commit point.
   moodledata:
     enabled: false
+    # true = provisioned (role, volume, grants, CronJob) but not scheduled: before the S11 commit point (V1004).
+    suspended: false
     schedule: "30 2 * * *"
     timeZone: America/Vancouver
-    dbUser: moodle_backup          # its own role: SELECT on mdl_files, EXECUTE pg_create_restore_point
+    # Its own role: SELECT on mdl_files, EXECUTE pg_create_restore_point and pg_switch_wal. Crunchy user names may hold
+    # only lowercase letters, digits and hyphens (they name the <cluster>-pguser-<user> Secret), so no underscore.
+    dbUser: moodle-backup
     storageClassName: netapp-file-backup
     size: 10Gi
     retain: 7
     activeDeadlineSeconds: 3600
     knownGapsConfigMap: ""         # a ConfigMap with known-gaps.txt: hashes already missing at cutover (§5.3)
+    pairAge:                       # J4, V1011: the newest usable pair's age, checked daily on its own
+      schedule: "0 9 * * *"
+      alertDays: 3
+      escalateDays: 5
+      escalateTo: ""               # the owner's address (an environment setting, like backup.alerts.to)
     resources:
       requests: { cpu: 50m, memory: 128Mi }
       limits:   { memory: 512Mi }

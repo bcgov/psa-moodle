@@ -69,7 +69,9 @@ metadata:
   labels:
     {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 4 }}
 spec:
-  suspend: {{ include "psa-moodle.fenced" . | eq "true" }}  # migration.state=fenced suspends it (S13)
+  # Suspended while fenced (S13) or until the S11 commit point (backup.moodledata.suspended, V1004). The role, the
+  # volume and the grants exist from the first install either way, so §13.2 can grant and S12 can seed before S11.
+  suspend: {{ or (include "psa-moodle.fenced" . | eq "true") .Values.backup.moodledata.suspended }}
   schedule: {{ .Values.backup.moodledata.schedule | quote }}
   timeZone: {{ .Values.backup.moodledata.timeZone | quote }}
   concurrencyPolicy: Forbid        # a second control; the advisory lock is the real one (V803)
@@ -149,4 +151,72 @@ spec:
               configMap:
                 name: {{ . }}
             {{- end }}
+---
+# J4 / review V1011: the newest usable pair's age, checked daily on its own (09:00, business hours), so failing, skipped
+# or missed backup runs are noticed even when no run reports anything. Same suspension as the backup. Reads the backup
+# volume read-only; shares the backup's ServiceAccount (exec into the repo host only) and its component label, so the
+# same network policies apply (Kubernetes API and SMTP for alerts; no internet).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullname }}-moodledata-pair-age
+  labels:
+    {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 4 }}
+spec:
+  suspend: {{ or (include "psa-moodle.fenced" . | eq "true") .Values.backup.moodledata.suspended }}
+  schedule: {{ .Values.backup.moodledata.pairAge.schedule | quote }}
+  timeZone: {{ .Values.backup.moodledata.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "psa-moodle.componentLabels" (list . "moodledata-backup") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          activeDeadlineSeconds: 600
+          serviceAccountName: {{ $fullname }}-moodledata-backup
+          {{- with .Values.image.pullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: pair-age
+              image: {{ include "psa-moodle.image.ops" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/usr/local/bin/moodledata-pair-age.sh"]
+              env:
+                {{- include "psa-moodle.opsEnv" . | nindent 16 }}
+                - name: DEST
+                  value: /backup
+                - name: ALERT_DAYS
+                  value: {{ .Values.backup.moodledata.pairAge.alertDays | quote }}
+                - name: ESCALATE_DAYS
+                  value: {{ .Values.backup.moodledata.pairAge.escalateDays | quote }}
+                - name: ESCALATE_TO
+                  value: {{ .Values.backup.moodledata.pairAge.escalateTo | default "" | quote }}
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                  readOnly: true
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { memory: 128Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ $fullname }}-moodledata-backup
+                readOnly: true
 {{- end }}

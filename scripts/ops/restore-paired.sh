@@ -10,8 +10,10 @@
 #   3. a new PostgresCluster <restore name>, restored from the release's repository to the manifest's restore point:
 #      --type=name --target=<set> --set=<base backup> --target-timeline=<timeline> --target-action=promote
 #   4. a new, empty moodledata PVC, filled by a Job running restore-set-files.sh from the backup PVC (read-only)
-#   5. a Job from the php image against the restored database and files: every referenced file present (beyond the
-#      set's recorded gaps), SHA-1s correct, no upgrade pending, encryption round trip with the restored key
+#   5. a Job from the php image against the restored database and files (V1012): the missing referenced files are
+#      EXACTLY the set's recorded source gaps (source-gaps.txt beside the manifest), by hash; SHA-1s correct; no
+#      upgrade pending; and the encryption canary stored at load time (encryption-canary.php create, §13.2) decrypts
+#      with the restored key, which proves the files' key and the database are a pair
 # Clean up with: oc delete postgrescluster/<name> pvc/<name>-moodledata job -l rp-restore=<name>
 set -euo pipefail
 NS=${1:?namespace}; REL=${2:?release}; MAN=${3:?manifest.json}; NAME=${4:?restore name}
@@ -24,6 +26,11 @@ SIZE_DB=${SIZE_DB:-10Gi}; SIZE_FILES=${SIZE_FILES:-6Gi}
 IMAGE_OPS=${IMAGE_OPS:?set IMAGE_OPS to the ops image (by digest)}
 IMAGE_PHP=${IMAGE_PHP:?set IMAGE_PHP to the exact-code php image (by digest)}
 set_id=$(jq -r .set "$MAN"); base=$(jq -r .database.base_backup "$MAN"); tl=$(jq -r .database.timeline "$MAN")
+GAPS_FILE="$(dirname "$MAN")/source-gaps.txt"
+[ -f "$GAPS_FILE" ] || { echo "no source-gaps.txt beside the manifest ($GAPS_FILE)" >&2; exit 1; }
+gaps_php=$(grep -E '^[0-9a-f]{40}$' "$GAPS_FILE" | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))' | sed "s/\"/'/g")
+[ "$(jq '.inventory.source_gaps' "$MAN")" = "$(grep -cE '^[0-9a-f]{40}$' "$GAPS_FILE" || true)" ] \
+  || { echo "source-gaps.txt does not match the manifest's count" >&2; exit 1; }
 sysid=$(jq -r .database.system_identifier "$MAN")
 echo "set $set_id: base backup $base, timeline $tl, system $sysid"
 out() { if [ "$APPLY" -eq 1 ]; then oc apply -n "$NS" -f -; else sed 's/^/   /'; fi; }
@@ -155,16 +162,20 @@ $(for k in DB_HOST:host DB_PORT:port DB_NAME:dbname DB_USER:user DB_PASSWORD:pas
             - -r
             - |
               define("CLI_SCRIPT", true); require "/var/www/html/config.php";
-              \$gaps = $(jq '.inventory.source_gaps' "$MAN");
+              \$gaps = $gaps_php;
               \$rs = \$DB->get_recordset_sql("SELECT DISTINCT contenthash FROM {files} WHERE filename <> ?", ["."]);
-              \$n = \$m = \$bad = 0;
+              \$n = \$bad = 0; \$missing = [];
               foreach (\$rs as \$r) { \$n++; \$h = \$r->contenthash; \$f = "\$CFG->dataroot/filedir/".substr(\$h,0,2)."/".substr(\$h,2,2)."/\$h";
-                if (!is_readable(\$f)) { \$m++; continue; } if (sha1_file(\$f) !== \$h) \$bad++; }
+                if (!is_readable(\$f)) { \$missing[] = \$h; continue; } if (sha1_file(\$f) !== \$h) \$bad++; }
               \$rs->close();
-              \$canary = \core\encryption::decrypt(\core\encryption::encrypt("canary")) === "canary";
-              printf("referenced %d, missing %d (set recorded %d gaps), SHA-1 mismatches %d, upgrade pending %s, key round trip %s\n",
-                \$n, \$m, \$gaps, \$bad, moodle_needs_upgrading() ? "YES" : "no", \$canary ? "ok" : "FAIL");
-              exit(\$m > \$gaps || \$bad || !\$canary || moodle_needs_upgrading() ? 1 : 0);
+              \$unexpected = array_diff(\$missing, \$gaps); \$stale = array_diff(\$gaps, \$missing);
+              \$enc = \$DB->get_field("config", "value", ["name" => "rp_encryption_canary"]);
+              try { \$canary = \$enc !== false && \core\encryption::decrypt(\$enc) === "psa-moodle encryption canary v1"; } catch (\Throwable \$e) { \$canary = false; }
+              printf("referenced %d; missing %d (unexpected %d, recorded gaps not missing %d); SHA-1 mismatches %d; upgrade pending %s; stored canary %s\n",
+                \$n, count(\$missing), count(\$unexpected), count(\$stale), \$bad, moodle_needs_upgrading() ? "YES" : "no",
+                \$enc === false ? "ABSENT" : (\$canary ? "decrypts" : "DOES NOT DECRYPT"));
+              foreach (array_slice(\$unexpected, 0, 20) as \$h) echo "unexpected missing \$h\n";
+              exit(\$unexpected || \$stale || \$bad || !\$canary || moodle_needs_upgrading() ? 1 : 0);
           volumeMounts:
             - { name: moodledata, mountPath: /var/www/moodledata }
             - { name: localcache, mountPath: /mnt/ramdisk }

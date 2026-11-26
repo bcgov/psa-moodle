@@ -229,3 +229,21 @@ Returns "true" when fenced. Any other value fails the render.
 {{- end -}}
 {{- if eq $state "fenced" }}true{{ end -}}
 {{- end }}
+
+{{/*
+networkPolicy.externalEgress: "on" or "off" (C15). Any other value fails the render.
+*/}}
+{{- define "psa-moodle.externalEgress" -}}
+{{- $v := toString .Values.networkPolicy.externalEgress -}}
+{{- if not (has $v (list "on" "off")) -}}
+{{- fail (printf "networkPolicy.externalEgress must be on or off, not %q" $v) -}}
+{{- end -}}
+{{- if include "psa-moodle.fenced" . }}off{{ else }}{{ $v }}{{ end -}}
+{{- end -}}
+
+{{/*
+The outbound guard's effective value (C5): off while fenced, else moodle.outbound (default off).
+*/}}
+{{- define "psa-moodle.outbound" -}}
+{{- if include "psa-moodle.fenced" . }}off{{ else }}{{ .Values.moodle.outbound | default "off" }}{{ end -}}
+{{- end -}}

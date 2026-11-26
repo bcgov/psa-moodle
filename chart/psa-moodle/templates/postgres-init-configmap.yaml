@@ -17,7 +17,9 @@ data:
     GRANT ALL ON SCHEMA public TO {{ .Values.postgres.user.name }};
     ALTER SCHEMA public OWNER TO {{ .Values.postgres.user.name }};
     {{- if .Values.backup.moodledata.enabled }}
-    -- C8: the backup role creates the nightly restore point. SELECT on mdl_files is granted after the data is loaded
-    -- (the table doesn't exist yet at bootstrap): GRANT SELECT ON mdl_files TO {{ .Values.backup.moodledata.dbUser }};
-    GRANT EXECUTE ON FUNCTION pg_create_restore_point(text) TO {{ .Values.backup.moodledata.dbUser }};
+    -- C8: the backup role creates the nightly restore point and closes its WAL segment so the gate can see it archived
+    -- (V1002). SELECT on mdl_files is granted after the data is loaded, by scripts/ops/backup-role-grants.sql (the table
+    -- doesn't exist yet at bootstrap, and this SQL runs only once; V1004). The role name has a hyphen: quote it.
+    GRANT EXECUTE ON FUNCTION pg_create_restore_point(text) TO {{ .Values.backup.moodledata.dbUser | quote }};
+    GRANT EXECUTE ON FUNCTION pg_switch_wal() TO {{ .Values.backup.moodledata.dbUser | quote }};
     {{- end }}

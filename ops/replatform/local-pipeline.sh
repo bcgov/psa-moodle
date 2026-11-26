@@ -116,11 +116,28 @@ clean_source() {
   log "tables now: $(maria -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='moodle'")"
 }
 
+pre_version_check() {
+  # S7, V1013: before ANYTHING writes to the copy (clean-source, E7, the NULL fill), the database and the code must agree
+  # on every version. Read directly, without booting Moodle. A source that already had E7 has no githubsync rows: its
+  # code folder is dropped first (local files only), exactly as E7 would.
+  if [ -z "$(maria -e "SELECT 1 FROM config_plugins WHERE plugin='local_githubsync' LIMIT 1")" ]; then rm -rf "$CODE/local/githubsync"; fi
+  podman run --rm --network "$NET" --platform linux/arm64 -v "$CODE:/code:ro" -v "$HERE/version-compare.php:/vc.php:ro" \
+    -e SRC_DBHOST="$MARIA" -e SRC_DBUSER=root -e SRC_DBPASS="$PASS" "$IMAGE" php /vc.php /code \
+    > "$LOGS/pre-version-$ENV_NAME.txt" 2>&1 || { log "STOP before any change: $(tail -n +2 "$LOGS/pre-version-$ENV_NAME.txt" | tr '\n' ' ')"; exit 1; }
+  log "$(tail -1 "$LOGS/pre-version-$ENV_NAME.txt") ($(head -1 "$LOGS/pre-version-$ENV_NAME.txt"))"
+}
+
 e7_uninstall() {
   # G1/E7: remove local_githubsync with Moodle's own uninstaller, then drop its code (the new image excludes it).
   if [ -n "$(maria -e "SELECT 1 FROM config_plugins WHERE plugin='local_githubsync' LIMIT 1")" ]; then
     log "uninstalling local_githubsync (E7 commands, local copy)"
-    php_src admin/cli/uninstall_plugins.php --plugins=local_githubsync --run 2>&1 | tee "$LOGS/e7-$ENV_NAME.txt" >&2
+    # A reused scratch dataroot keeps Moodle's component cache from an earlier run, built without the plugin, and the
+    # uninstaller then reports "Unknown plugin". Start from empty caches (local scratch only).
+    rm -rf "$SCRATCH/cache" "$SCRATCH/localcache" "$SCRATCH/muc"
+    php_src admin/cli/uninstall_plugins.php --plugins=local_githubsync --run > "$LOGS/e7-$ENV_NAME.txt" 2>&1 || true
+    if [ -n "$(maria -e "SELECT 1 FROM config_plugins WHERE plugin='local_githubsync' LIMIT 1")" ]; then
+      log "STOP: the uninstall left local_githubsync's rows ($(tail -1 "$LOGS/e7-$ENV_NAME.txt"))"; exit 1
+    fi
   else
     log "local_githubsync not installed in this copy"
   fi
@@ -128,8 +145,19 @@ e7_uninstall() {
   # uninstall_plugin() blanks allversionshash (lib/adminlib.php), which makes Moodle report "upgrade pending" and
   # stops cron until upgrade.php recomputes it. With every version unchanged, upgrade.php only refreshes the hashes,
   # the cache revision counters and registrationpending (verified on the prod copy, 2026-11-25). E7 needs this step too.
+  # V1013: the refresh may change only the documented settings (seen on the prod copy, 2026-11-25); anything else stops.
+  maria -e "SELECT name, value FROM config ORDER BY name" > "$LOGS/e7-config-before-$ENV_NAME.tsv"
+  maria -e "SELECT plugin, name, value FROM config_plugins ORDER BY plugin, name" > "$LOGS/e7-cfgplugins-before-$ENV_NAME.tsv"
   php_src admin/cli/upgrade.php --non-interactive > "$LOGS/e7-upgrade-$ENV_NAME.txt" 2>&1
   log "$(grep -o 'Command line upgrade.*' "$LOGS/e7-upgrade-$ENV_NAME.txt" | tail -1)"
+  maria -e "SELECT name, value FROM config ORDER BY name" > "$LOGS/e7-config-after-$ENV_NAME.tsv"
+  maria -e "SELECT plugin, name, value FROM config_plugins ORDER BY plugin, name" > "$LOGS/e7-cfgplugins-after-$ENV_NAME.tsv"
+  local changed
+  changed=$( { diff "$LOGS/e7-config-before-$ENV_NAME.tsv" "$LOGS/e7-config-after-$ENV_NAME.tsv" | awk -F'\t' '/^[<>]/ {sub(/^[<>] /, "", $1); print "config/" $1}'
+               diff "$LOGS/e7-cfgplugins-before-$ENV_NAME.tsv" "$LOGS/e7-cfgplugins-after-$ENV_NAME.tsv" | awk -F'\t' '/^[<>]/ {sub(/^[<>] /, "", $1); print $1 "/" $2}'; } | sort -u \
+           | grep -vxE 'config/(allcomponenthash|allversionshash|jsrev|langrev|localcachedirpurged|registrationpending|scheduledtaskreset|templaterev|themerev)|theme_[a-z0-9_]+/themerev' || true)
+  [ -z "$changed" ] || { log "STOP: E7's upgrade.php changed settings outside the documented refresh: $(echo $changed)"; exit 1; }
+  log "E7 refresh changed only the documented hashes, cache revisions and registrationpending"
   log "githubsync rows left: $(maria -e "SELECT COUNT(*) FROM config_plugins WHERE plugin='local_githubsync'")"
 }
 
@@ -242,6 +270,7 @@ case "$STEP" in
   clean-source)   clean_source ;;
   e7-uninstall)   e7_uninstall ;;
   normalise-nulls) normalise_nulls ;;
+  pre-version-check) pre_version_check ;;
   version-check)  version_check ;;
   start-postgres) start_postgres ;;
   migrate)        migrate ;;
@@ -249,6 +278,6 @@ case "$STEP" in
   dump)           dump ;;
   reverse)        reverse ;;
   reverse-counts) reverse_counts ;;
-  all) prepare_code; schema_check; clean_source; e7_uninstall; normalise_nulls; version_check; start_postgres; migrate; counts; dump ;;
+  all) prepare_code; schema_check; pre_version_check; clean_source; e7_uninstall; normalise_nulls; version_check; start_postgres; migrate; counts; dump ;;
   *) echo "unknown step: $STEP" >&2; exit 2 ;;
 esac

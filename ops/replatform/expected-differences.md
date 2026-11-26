@@ -27,6 +27,7 @@ would show up as a difference. None is expected.
 | R1 | `log_display` differs | rebuilt by `tool_dbtransfer` again |
 | R2 | D3-D6 stay absent | they were not migrated forward; legacy's own frozen `moodle` keeps them |
 | R3 | D8's filled values stay filled | the reverse writes what Postgres holds |
+| R4 | `config.rp_encryption_canary` present | created on the new stack after the forward `compare-content` (§13.2, V1012); legacy's frozen `moodle` never had it |
 
 A reverse conversion of an unchanged forward result has shown no other difference (prod and test, 2026-11-25).
 

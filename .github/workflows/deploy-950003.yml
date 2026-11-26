@@ -5,14 +5,22 @@
 # upgrade.php, it deploys images by digest only (from build-exact), and it refuses unless the target database's Moodle
 # version equals the image's code (Moodle's own `upgrade.php --is-pending`, run from the new php image).
 #
-# Profiles (every other value comes from chart/psa-moodle/values-950003-<env>.yaml):
-#   precommit  outbound off, cron off, nightly backup off      (§13 before the commit point; review on the restricted Route)
-#   commit     outbound on, cron on, nightly backup on          (S11: the commit point; recorded in the window log FIRST)
-#   fenced     migration.state=fenced                            (S13 writer fence; verify-fenced.sh must pass)
+# Every run is fully specified (no --reuse-values): values-950003-<env>.yaml, the dev size overlay, the profile, the
+# site host and the digests (review V1008). Profiles:
+#   bootstrap      fenced state, nothing runs against the database: Postgres, Valkey, the volumes, the database Secret
+#                  and the backup role exist, so §13.2 can load the database. No version check (nothing loaded yet).
+#   empty-install  DEV ONLY (Pass A): Moodle's installer on an empty database; outbound and external egress off.
+#   precommit      outbound off, external egress off, cron off, nightly backup provisioned but suspended (§13, S15)
+#   commit         outbound on, external egress on, cron on, nightly backup scheduled (S11: record it in the window log
+#                  FIRST)
+#   fenced         migration.state=fenced (S13 writer fence; verify-fenced.sh must pass)
+# site_host: `temporary` keeps the values file's temporary wwwroot; `public` sets the PUBLIC_WWWROOT variable (from
+# CP3). The chart's own Route always keeps the temporary hostname. A run that would move a deployed public wwwroot back
+# to the temporary one stops unless allow_host_change is set.
 #
 # Per-environment settings, never in the repository (S9, S15): environment secrets OPENSHIFT_SERVER and OPENSHIFT_TOKEN;
-# environment variables NAMESPACE, ROUTE_ALLOWED_SOURCES (JSON list of CIDRs), ALERT_TO, REVIEWER_ADMINS and, for fenced,
-# FENCE_SERVICE.
+# environment variables NAMESPACE, ROUTE_ALLOWED_SOURCES (JSON list of CIDRs), ALERT_TO, REVIEWER_ADMINS,
+# PUBLIC_WWWROOT and, for fenced, FENCE_SERVICE.
 name: deploy-950003
 
 on:
@@ -24,10 +32,25 @@ on:
         type: choice
         options: [950003-dev, 950003-test, 950003-prod]
       profile:
-        description: precommit | commit (S11, record it first) | fenced (S13)
+        description: bootstrap | empty-install (dev only) | precommit | commit (S11, record it first) | fenced (S13)
         required: true
         type: choice
-        options: [precommit, commit, fenced]
+        options: [bootstrap, empty-install, precommit, commit, fenced]
+      site_host:
+        description: temporary (the values file's wwwroot) or public (PUBLIC_WWWROOT, from CP3)
+        required: true
+        type: choice
+        options: [temporary, public]
+      allow_host_change:
+        description: Allow moving a deployed public wwwroot back to the temporary one
+        required: false
+        type: boolean
+        default: false
+      overlay:
+        description: Dev size overlay for the rehearsal pass (dev only; §9 storage budget)
+        required: true
+        type: choice
+        options: [none, dev-pass-a, dev-pass-b, dev-pass-c]
       php_digest:
         description: php image digest (sha256:...) from build-exact
         required: true
@@ -69,6 +92,12 @@ jobs:
           if [ "${{ inputs.profile }}" = fenced ] && [ -z "${{ vars.FENCE_SERVICE }}" ]; then
             echo "::error::fenced needs the environment variable FENCE_SERVICE"; exit 1
           fi
+          if [ "$ENV_SHORT" != dev ] && { [ "${{ inputs.profile }}" = empty-install ] || [ "${{ inputs.overlay }}" != none ]; }; then
+            echo "::error::empty-install and the size overlays are for 950003-dev only"; exit 1
+          fi
+          if [ "${{ inputs.site_host }}" = public ] && [ -z "${{ vars.PUBLIC_WWWROOT }}" ]; then
+            echo "::error::site_host=public needs the environment variable PUBLIC_WWWROOT"; exit 1
+          fi
 
       - name: Install helm
         uses: azure/setup-helm@v5
@@ -85,13 +114,19 @@ jobs:
       - name: Render values for this run
         id: values
         run: |
+          off=(--set moodle.outbound=off --set networkPolicy.externalEgress=off)
           case "${{ inputs.profile }}" in
-            precommit) prof=(--set moodle.outbound=off --set cron.enabled=false --set backup.moodledata.enabled=false --set migration.state=normal) ;;
-            commit)    prof=(--set moodle.outbound=on --set cron.enabled=true --set backup.moodledata.enabled=true --set migration.state=normal) ;;
-            fenced)    prof=(--set migration.state=fenced --set migration.fenceService="${{ vars.FENCE_SERVICE }}") ;;
+            bootstrap)     prof=(--set migration.state=fenced "${off[@]}" --set install.enabled=false --set backup.moodledata.suspended=true)
+                           [ -z "${{ vars.FENCE_SERVICE }}" ] || prof+=(--set migration.fenceService="${{ vars.FENCE_SERVICE }}") ;;
+            empty-install) prof=(--set migration.state=normal "${off[@]}" --set install.enabled=true --set cron.enabled=true --set backup.moodledata.suspended=false) ;;
+            precommit)     prof=(--set migration.state=normal "${off[@]}" --set install.enabled=false --set cron.enabled=false --set backup.moodledata.suspended=true) ;;
+            commit)        prof=(--set migration.state=normal --set moodle.outbound=on --set networkPolicy.externalEgress=on --set install.enabled=false --set cron.enabled=true --set backup.moodledata.suspended=false) ;;
+            fenced)        prof=(--set migration.state=fenced --set migration.fenceService="${{ vars.FENCE_SERVICE }}" --set install.enabled=false) ;;
           esac
+          [ "${{ inputs.site_host }}" = public ] && prof+=(--set "moodle.wwwroot=${{ vars.PUBLIC_WWWROOT }}")
           {
             printf '%s\n' -f "chart/psa-moodle/values-950003-$ENV_SHORT.yaml"
+            [ "${{ inputs.overlay }}" = none ] || printf '%s\n' -f "chart/psa-moodle/values-950003-${{ inputs.overlay }}.yaml"
             printf '%s\n' --set "php.image.digest=${{ inputs.php_digest }}" --set "web.image.digest=${{ inputs.web_digest }}"
             printf '%s\n' --set "cron.image.digest=${{ inputs.cron_digest }}" --set "backup.alerts.to=${{ vars.ALERT_TO }}"
             printf '%s\n' --set-json "route.allowedSources=${{ vars.ROUTE_ALLOWED_SOURCES || '[]' }}"
@@ -102,9 +137,23 @@ jobs:
           helm lint chart/psa-moodle "${args[@]}"
           helm template "$RELEASE" chart/psa-moodle -n "$NS" "${args[@]}" > /tmp/rendered.yaml
           echo "rendered $(grep -c '^kind:' /tmp/rendered.yaml) objects"
+          new_root=$(yq -r 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "php") | .spec.template.spec.containers[0].env[] | select(.name == "MOODLE_WWWROOT") | .value' /tmp/rendered.yaml)
+          echo "new_root=$new_root" >> "$GITHUB_OUTPUT"
+          { echo "### helm arguments"; echo '```'; cat /tmp/helm-args; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare with the deployed release (V1008)
+        run: |
+          old_root=$(oc get deploy "$RELEASE-php" -n "$NS" -o json 2>/dev/null \
+            | jq -r '.spec.template.spec.containers[0].env[]? | select(.name == "MOODLE_WWWROOT") | .value' || true)
+          new_root="${{ steps.values.outputs.new_root }}"
+          echo "deployed wwwroot: ${old_root:-<none>}; this run: $new_root"
+          if [ -n "$old_root" ] && [ "$old_root" = "${{ vars.PUBLIC_WWWROOT }}" ] && [ "$new_root" != "$old_root" ] \
+             && [ "${{ inputs.allow_host_change }}" != true ]; then
+            echo "::error::this run would move the deployed public wwwroot back to $new_root; set allow_host_change to do that"; exit 1
+          fi
 
       - name: Version check (S7) — the database must already be at the image's version
-        if: inputs.profile != 'fenced'
+        if: inputs.profile == 'precommit' || inputs.profile == 'commit'
         run: |
           php='select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "php")'
           image=$(yq -r "$php | .spec.template.spec.containers[0].image" /tmp/rendered.yaml)
@@ -137,8 +186,15 @@ jobs:
       - name: Verify the profile
         run: |
           case "${{ inputs.profile }}" in
-            fenced) ops/replatform/verify-fenced.sh "$NS" "$RELEASE" ;;
-            precommit|commit)
+            fenced|bootstrap)
+              ops/replatform/verify-fenced.sh "$NS" "$RELEASE"
+              pg=$(oc get postgrescluster -n "$NS" -l "app.kubernetes.io/instance=$RELEASE" -o jsonpath='{.items[0].metadata.name}')
+              oc wait pod -n "$NS" -l "postgres-operator.crunchydata.com/cluster=$pg,postgres-operator.crunchydata.com/role in (master,primary)" \
+                --for=condition=Ready --timeout=10m
+              oc get secret "$pg-pguser-moodle" "$pg-pguser-moodle-backup" -n "$NS" -o name 2>/dev/null \
+                || oc get secret -n "$NS" -o name | grep -- "$pg-pguser-"
+              ;;
+            empty-install|precommit|commit)
               expect=$([ "${{ inputs.profile }}" = commit ] && echo off || echo on)
               pod=$(oc get pods -n "$NS" -l "app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component=php" \
                     --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
@@ -150,7 +206,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## deploy-950003: ${{ inputs.environment }}, profile ${{ inputs.profile }}"
+            echo "## deploy-950003: ${{ inputs.environment }}, profile ${{ inputs.profile }}, site ${{ inputs.site_host }}, overlay ${{ inputs.overlay }}"
             echo
             echo "- php \`${{ inputs.php_digest }}\`"
             echo "- web \`${{ inputs.web_digest }}\`"

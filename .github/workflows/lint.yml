@@ -42,6 +42,15 @@ jobs:
             -n a58ce1-test \
             -f chart/psa-moodle/values-test.yaml \
             --set image.tag=ci > /tmp/rendered-test.yaml
+      - name: Egress per component, 950003 profiles (C9, C15, review V1003)
+        run: |
+          d=sha256:$(printf '0%.0s' $(seq 64))
+          for e in dev test prod; do
+            base=(-f "chart/psa-moodle/values-950003-$e.yaml" --set backup.alerts.to=ci@example.invalid
+                  --set php.image.digest="$d" --set web.image.digest="$d" --set cron.image.digest="$d")
+            echo "== $e precommit"; scripts/chart-egress-matrix.sh --expect precommit -- "${base[@]}" --set moodle.outbound=off --set networkPolicy.externalEgress=off
+            echo "== $e commit"; scripts/chart-egress-matrix.sh --expect commit -- "${base[@]}" --set moodle.outbound=on --set networkPolicy.externalEgress=on
+          done
 
   scripts:
     runs-on: ubuntu-latest
