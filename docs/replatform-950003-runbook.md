@@ -1706,7 +1706,7 @@ created with `--internal`, so it has no route to the internet.
     - a pgBackRest backup, and the repository's peak use under the time-based retention schedule (C8);
     - a restore drill, with an explicit recovery target (C7);
     - pod-kill and PDB behaviour;
-    - alerts;
+    - alerts (then delete each deliberately failed Job, or `KubeJobFailed` repeats until it's gone);
     - **the writer fence and the full shutdown**, and their reverses, with quota measured in each state (RB04, DR04).
   - ***First run, 2026-11-26 (owner-approved; fifth attempt, `deploy-950003` run 45757308604):*** **installed.**
     Helm `deployed`; Moodle's installer completed (511 tables); the outbound guard verified on; the login page is served
@@ -1758,7 +1758,11 @@ created with `--internal`, so it has no route to the internet.
     **Alerts fired on purpose (owner-approved):** a backup run with a zero drain limit paused, reopened at once and
     emailed "drain limit reached: skipped tonight"; the pair-age watch with zero-day thresholds emailed its ESCALATE
     message. Both reached the owner through the ops jobs' SMTP rule (relay: "Queued mail for delivery"); the site
-    stayed open.
+    stayed open. **Delete a deliberately failed Job as soon as its email arrives:** the platform's `KubeJobFailed`
+    alert fires for every Job left in the Failed state and repeats until it's gone. The two test Jobs were left in
+    place and set off repeated `KubeJobFailed` warnings overnight; they were deleted (owner-approved) 2026-11-26
+    ~15:50Z, leaving no failed Job. Pass B's failure tests (the backup matrix) do the same: each deliberate failure
+    ends with `oc delete job <name>`.
     **Writer fence, full shutdown and their reverses (owner-approved), quota in each state (requests, CPU / memory):**
     normal 2,331m / 6,760 MiB. `writer-fence.sh` (58 s): every `verify-fenced.sh` check passed, the temporary Route
     served the maintenance page; 1,981m / 5,928 MiB. `full-shutdown.sh`: Postgres stopped with both volumes kept
