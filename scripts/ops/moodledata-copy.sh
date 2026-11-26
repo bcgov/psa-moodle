@@ -21,8 +21,9 @@ die() { log "FAIL: $*"; exit 1; }
 [ -d "$SRC/filedir" ] || die "no filedir under $SRC"
 [ -d "$DST" ] && [ -w "$DST" ] || die "target $DST is not a writable directory"
 
-# 1. Reviewed top-level entries (dataroot-inventory.md, 2026-11-26).
-allowed=" filedir lang secret psaelmsync_apitest_state.json antivirus_quarantine .quarantine-20260826T190745Z muc \
+# 1. Reviewed top-level entries (dataroot-inventory.md, 2026-11-26). climaintenance.html is legacy's CLI maintenance
+#    page, present at every freeze (E1): allowed and never copied (Pass B window 1 stopped here without it).
+allowed=" filedir lang secret psaelmsync_apitest_state.json antivirus_quarantine .quarantine-20260826T190745Z muc climaintenance.html \
 trashdir cache localcache temp sessions lock .htaccess vendor cdata_tools persistent cdata.json models \
 8a67be2eed31256bcc24e02d4b9ab5ad "
 unlisted=$(cd "$SRC" && ls -A | while IFS= read -r e; do case "$allowed" in *" $e "*) ;; *) printf '%s ' "$e" ;; esac; done)

@@ -14,6 +14,7 @@ Top-level entries as listed read-only on 2026-11-26 (P = prod, T = test, D = dev
 | `antivirus_quarantine/` | P T D | no | n/a | empty in prod and test |
 | `.quarantine-20260826T190745Z/` | P T | no | n/a | one file each, from the 2026-05 recovery; kept on legacy |
 | `muc/` | P T D | **never** | n/a | `muc/config.php` points at legacy Redis; the new stack builds its own cache configuration |
+| `climaintenance.html` | P T D (at a freeze) | **never** | n/a | legacy's CLI maintenance page, created by E1 before every final copy; the new stack has its own maintenance (Pass B window 1, 2026-11-26) |
 | `trashdir/` | P T D | no | n/a | content no record references; Moodle's own cleanup empties it (J2) |
 | `cache/`, `localcache/`, `temp/`, `sessions/` | P T D (varies) | no | n/a | regenerated; most of legacy's live caches are under `/var/shared` or the RAM disk anyway |
 | `.htaccess` | P T D | no | n/a | Moodle writes its own deny-all file into the dataroot |
