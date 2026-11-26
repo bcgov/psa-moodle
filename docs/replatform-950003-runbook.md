@@ -1676,8 +1676,13 @@ created with `--internal`, so it has no route to the internet.
     - pod-kill and PDB behaviour;
     - alerts;
     - **the writer fence and the full shutdown**, and their reverses, with quota measured in each state (RB04, DR04).
-  - **Undo:** `helm uninstall psa-moodle`; then delete the listed `psa-moodle-*` PVCs, the PostgresCluster and the kept
-    Secrets.
+  - **Undo:** `helm uninstall psa-moodle --wait` (it removes the PostgresCluster, and Crunchy then removes its pods and
+    volumes); then delete what survives an uninstall by design: PVCs `psa-moodle-moodledata-backup` (resource policy
+    keep) and `data-psa-moodle-valkey-0` (a StatefulSet volume), and Secrets `psa-moodle-admin` and
+    `psa-moodle-valkey-auth` (keep). Verify no object labelled for the release or for `psa-moodle-pg` remains, storage
+    is back to its baseline, and `RESTORE_SCOPE=all state-restore.sh <ns> prepassa` reports a match.
+    *Rehearsed 2026-11-26 after Pass A's first install failed (an empty AlertmanagerConfig recipient, and Valkey not
+    available through `m950-learning`): every check passed, and legacy dev matched its capture exactly.*
 - **Pass B: dress rehearsal of the cutover (§13) and the return (§14).** Legacy dev is the source, at its deployed 4.5.15
   with the dev build (J3), and its Routes play the public Routes. Record the starting state (S14) first. Each run must
   include:

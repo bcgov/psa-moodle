@@ -28,7 +28,9 @@ permissions:
 
 env:
   REGISTRY: artifacts.developer.gov.bc.ca
-  REGISTRY_REPO: a58ce1-tools/psa-moodle
+  # Push only to an explicitly configured repository: the PoC's a58ce1-tools doesn't exist in Artifactory, and 950003's
+  # images come from build-exact. Unset = build and verify only (2026-11-26).
+  REGISTRY_REPO: ${{ vars.BUILD_REGISTRY_REPO }}
 
 jobs:
   build:
@@ -61,11 +63,11 @@ jobs:
         env:
           ARTIFACTORY_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
         run: |
-          if [ -n "$ARTIFACTORY_PASSWORD" ]; then
+          if [ -n "$ARTIFACTORY_PASSWORD" ] && [ -n "$REGISTRY_REPO" ]; then
             echo "have=true" >> "$GITHUB_OUTPUT"
           else
             echo "have=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::ARTIFACTORY_PASSWORD not set — building without pushing. Provision a58ce1-tools and add the secret to enable push (see docs/next-steps.md)."
+            echo "::notice::No push target (repository variable BUILD_REGISTRY_REPO unset, or no Artifactory credential): building without pushing. 950003 images come from build-exact."
           fi
 
       # Build-only when this is a PR, or when we have nowhere to push to yet.
