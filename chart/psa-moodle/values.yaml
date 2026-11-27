@@ -167,7 +167,7 @@ postgres:
     differentialSchedule: ""       # e.g. "0 1 * * 1-6" with a weekly full (C8)
     # Schedules (cron): full once a day, incrementals hourly.
     fullSchedule: "0 2 * * *"
-    incrementalSchedule: "0 * * * *"
+    incrementalSchedule: "15 * * * *"  # never the same minute as fullSchedule/differentialSchedule: one would fail on the pgBackRest lock
   user:
     name: moodle
     database: moodle

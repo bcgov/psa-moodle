@@ -121,18 +121,25 @@ The window log, extracts and recovery sets are in the private run folder `passb-
   new stack's php and cron env. It also failed on bash 3.2 with an empty array.
 - **No tool returned files add-only:** `return-files-job.yaml` (used in this run).
 
-### Open follow-ups
-1. **Runbook: a return step for plugins E7 removed** (githubsync): install from legacy's code, then settings and task
-   state from the frozen `moodle`. Check prod's githubsync data before relying on it.
-2. `deploy-950003` `fenced`: wait for the app pods to finish terminating before `verify-fenced.sh` (failed on cron's
-   30-second grace).
-3. `local-pipeline.sh`: count `mdl_` base tables only, and a step that loads a Crunchy dump locally (skip `pgaudit`,
-   `pg_stat_statements` and grants).
-4. Chart: pgBackRest incrementals at minute 0 collide with the 01:00 differential/full (lock; retried, succeeded).
-5. `oc exec` streams over about 125 MiB were cut off (local `oc` 4.10): off-site copies in verified chunks; update the
-   local client to 4.18, as the workflow uses.
-6. Seed the new stack's moodledata-backup known gaps with legacy dev's 1,399 (it alerts on every run).
-7. `bailout-switch.sh` / `bailout-unswitch.sh` hard-code the capture name `prereturn`.
-8. Legacy dev's ELM endpoints now point at the mock (they came back from session 1); restore them when the owner
-   decides, then remove the mock. Legacy dev's admin password is the one set at P4 (returned with the data).
-9. The new stack stays fenced until the owner decides (§13.4 step 6).
+### Follow-ups (fixed 2026-11-27, runbook v1.5 §0.13)
+1. **A return step for plugins E7 removed:** `local-pipeline.sh <env> reverse-version-check` compares legacy's actual
+   code with the returned data at §14.2, before anything touches legacy; the two ways through are in §14.2 step 5.
+   For test and prod, E7 (which also removes the code) is already a gate, so a return finds nothing to reinstate;
+   GitHub sync is unused there (Q4), and E7 step 1 saves its rows.
+2. `deploy-950003` `fenced`/`bootstrap` wait for the app pods to go before `verify-fenced.sh`.
+3. `local-pipeline.sh`: counts read `mdl_` base tables only; a `load-pg` step restores a Crunchy dump.
+4. pgBackRest incrementals moved to minute 15 in every profile and the default; a lint guard keeps them off the
+   full/differential minute.
+5. `offsite-copy.sh` copies in chunks checked against the pod and retried; the local `oc` is 4.18.56 (in
+   `~/.local/bin`; 4.10 stays at `/usr/local/bin/oc`). Both clients streamed 479 MiB intact in a test, so the
+   truncation is intermittent: the chunked check is the fix, not the client.
+6. The known-gaps list: a §13.2 step creates `psa-moodle-known-gaps`; the profiles name it; the mount is optional and
+   the backup says when it's missing.
+7. `CAPTURE` names the return's capture in `bailout-switch.sh`, `bailout-unswitch.sh` and `legacy-cleanup.sh`.
+8. Owner, 2026-11-27: legacy dev's ELM stays on the mock (`elm-mock` stays).
+9. Owner, 2026-11-27: the new stack stays fenced.
+
+Also fixed: `state-restore.sh` no longer reports a phantom ConfigMap difference when a read fails.
+
+**To apply in dev (each needs the owner's approval):** a fresh `build-exact` (the scripts in the images); the chart
+changes through the next `fenced` deploy; `psa-moodle-known-gaps` created from the run's known-missing list.

@@ -81,7 +81,7 @@ postgres:
     retentionFullType: time
     fullSchedule: "0 1 * * 0"      # weekly full, daily differential, hourly incremental
     differentialSchedule: "0 1 * * 1-6"
-    incrementalSchedule: "0 * * * *"
+    incrementalSchedule: "15 * * * *"  # :15, so it never shares a minute with the 01:00 full/differential (pgBackRest lock, Pass B run 2) or the 02:30 moodledata pause
 
 backup:
   integrity:
@@ -93,6 +93,7 @@ backup:
   moodledata:
     enabled: true           # provisioned from the first install (V1004): role, volume, grants
     suspended: true          # scheduled only from the S11 commit point (deploy-950003 commit profile; C8, J1)
+    knownGapsConfigMap: psa-moodle-known-gaps   # known-gaps.txt: the cutover's known-missing hashes, created at §13.2, never in git
     size: 5Gi
 
 # C15: the ops jobs' Kubernetes API rule, narrowed after Pass A. In-cluster clients reach the API through the kubernetes

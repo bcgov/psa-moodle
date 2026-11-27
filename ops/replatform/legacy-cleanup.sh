@@ -22,9 +22,10 @@ NS=${1:?namespace}
 APPLY=0; [ "${2:-}" = "--apply" ] && APPLY=1
 APP_USER=${APP_USER:-moodle}
 . "$HERE/rp-mariadb-target.sh"
-DIR="$HOME/Moodle/private-backups/state-$NS-prereturn"
-[ -d "$DIR" ] || { echo "no prereturn capture" >&2; exit 1; }
-FROZEN=${FROZEN:-$HOME/Moodle/private-backups/frozen-checksums-$NS-prereturn.tsv}
+export CAPTURE=${CAPTURE:-prereturn}  # the return's capture, as given to bailout-switch.sh; bailout-unswitch.sh reads it too
+DIR="$HOME/Moodle/private-backups/state-$NS-$CAPTURE"
+[ -d "$DIR" ] || { echo "no $CAPTURE capture" >&2; exit 1; }
+FROZEN=${FROZEN:-$HOME/Moodle/private-backups/frozen-checksums-$NS-$CAPTURE.tsv}
 PENDING="$HOME/Moodle/private-backups/pending-cleanup-$NS.md"
 umask 077
 [ -f "$PENDING" ] || printf '# Pending legacy clean-up: %s\n\nStarted %s. Legacy stays fenced until all four steps are done.\n\n' "$NS" "$(date -u +%FT%TZ)" > "$PENDING"

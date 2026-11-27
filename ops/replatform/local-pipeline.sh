@@ -9,6 +9,7 @@
 #     env:  prod | test | dev
 #     step: start-mariadb | load (DUMP=<file.sql.gz>) | prepare-code | schema-check | clean-source | e7-uninstall |
 #           normalise-nulls | version-check | start-postgres | migrate | counts | dump | reverse | reverse-counts |
+#           load-pg (DUMP=<new stack pg_dump -Fc>) | reverse-version-check (LEGACY_NS=<legacy namespace>) |
 #           all (prepare-code through dump)
 #
 # Expects (made by the operator, see the runbook):
@@ -65,7 +66,8 @@ counts_maria() { # container, database
 }
 counts_pg() {
   local q
-  q=$(pg -c "select substr(table_name,5) from information_schema.tables where table_schema='public' order by 1" \
+  # Moodle's tables only: a Crunchy dump also brings pg_stat_statements' views into public (Pass B run 2).
+  q=$(pg -c "select substr(table_name,5) from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name like 'mdl\\_%' order by 1" \
       | awk '{printf "%sSELECT \x27%s\x27, COUNT(*) FROM mdl_%s", (NR>1?" UNION ALL ":""), $1, $1}')
   pg -c "$q" | sort
 }
@@ -254,6 +256,36 @@ reverse_counts() {
   fi
 }
 
+load_pg() {
+  # §14.2 step 1: a pg_dump -Fc of the NEW stack's database into a fresh local Postgres. Crunchy adds what stock Postgres
+  # lacks or Moodle doesn't own: the pgaudit extension (not installed locally), pg_stat_statements, and grants to the
+  # backup role (not created locally). Skip all three; everything else must restore, in one transaction.
+  local dump=${DUMP:?set DUMP=<file.dump>} start=$SECONDS
+  start_postgres
+  podman cp "$dump" "$PG:/tmp/in.dump"
+  podman exec "$PG" sh -c "pg_restore -l /tmp/in.dump | grep -v -E 'EXTENSION - (pgaudit|pg_stat_statements)|COMMENT - EXTENSION (pgaudit|pg_stat_statements)' > /tmp/in.list"
+  podman exec "$PG" pg_restore -U moodle --no-owner --no-acl --role=moodle --exit-on-error --single-transaction \
+    -L /tmp/in.list -d moodle /tmp/in.dump || { log "LOCAL RESTORE FAILED: $dump"; exit 1; }
+  podman exec "$PG" rm -f /tmp/in.dump /tmp/in.list
+  log "loaded $(basename "$dump") into $PG in $((SECONDS - start))s: $(pg -c "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name like 'mdl\\_%'") mdl_ tables (pgaudit, pg_stat_statements and grants skipped)"
+}
+
+reverse_version_check() {
+  # §14.2 step 5 (Pass B run 2): legacy's ACTUAL code against the returned moodle_bailout, before anything touches
+  # legacy. A plugin in legacy's code but not in the returned data (E7 not yet done on that legacy, as in dev) makes
+  # legacy report an upgrade pending after the switch, and cron refuses to run. Reads only the version.php files from a
+  # legacy php pod (read-only), then compares them with version-compare.php, allowing nothing.
+  local ns=${LEGACY_NS:?set LEGACY_NS=<legacy namespace>} vc="$WORK/legacy-versions-$ENV_NAME"
+  [ -n "$WORK" ] && rm -rf "$vc" && mkdir -p "$vc"
+  oc exec -n "$ns" deploy/php -c php -- sh -c 'cd /var/www/html && find . -name version.php | tar -cf - -T -' \
+    | tar -C "$vc" -xf - || { log "STOP: could not read legacy's version files from $ns"; exit 1; }
+  podman run --rm --network "$NET" --platform linux/arm64 -v "$vc:/code:ro" -v "$HERE/version-compare.php:/vc.php:ro" \
+    -e SRC_DBHOST="$RETURN" -e SRC_DBUSER=root -e SRC_DBPASS="$PASS" -e SRC_DBNAME=moodle_bailout "$IMAGE" php /vc.php /code \
+    > "$LOGS/reverse-version-$ENV_NAME.txt" 2>&1 \
+    || { log "STOP: legacy's code ($ns) and the returned data disagree: $(tail -n +2 "$LOGS/reverse-version-$ENV_NAME.txt" | tr '\n' ' ')"; exit 1; }
+  log "legacy's code ($ns) and moodle_bailout: $(tail -1 "$LOGS/reverse-version-$ENV_NAME.txt") ($(head -1 "$LOGS/reverse-version-$ENV_NAME.txt"))"
+}
+
 dump() {
   local out
   out="$WORK/$ENV_NAME-postgres-$(date -u +%Y%m%dT%H%M%SZ).dump"
@@ -276,8 +308,10 @@ case "$STEP" in
   migrate)        migrate ;;
   counts)         counts ;;
   dump)           dump ;;
+  load-pg)        load_pg ;;
   reverse)        reverse ;;
   reverse-counts) reverse_counts ;;
+  reverse-version-check) reverse_version_check ;;
   all) prepare_code; schema_check; pre_version_check; clean_source; e7_uninstall; normalise_nulls; version_check; start_postgres; migrate; counts; dump ;;
   *) echo "unknown step: $STEP" >&2; exit 2 ;;
 esac

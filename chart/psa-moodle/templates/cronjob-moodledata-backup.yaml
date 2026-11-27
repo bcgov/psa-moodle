@@ -150,6 +150,7 @@ spec:
             - name: known-gaps
               configMap:
                 name: {{ . }}
+                optional: true   # a missing list never stops a backup; the script alerts that it's missing
             {{- end }}
 ---
 # J4 / review V1011: the newest usable pair's age, checked daily on its own (09:00, business hours), so failing, skipped

@@ -231,6 +231,13 @@ jobs:
         run: |
           case "$IN_PROFILE" in
             fenced|bootstrap)
+              # Helm's --wait returns once the Deployments are at 0, while their pods may still be in their termination
+              # grace (Pass B run 2: cron, 30 s). Wait for them to go, as writer-fence.sh does, then verify.
+              app="app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component in (web,php,cron)"
+              for _ in $(seq 1 60); do
+                [ -z "$(oc get pods -n "$NS" -l "$app" -o name 2>/dev/null)" ] && break
+                sleep 5
+              done
               ops/replatform/verify-fenced.sh "$NS" "$RELEASE"
               pg=$(oc get postgrescluster -n "$NS" -l "app.kubernetes.io/instance=$RELEASE" -o jsonpath='{.items[0].metadata.name}')
               primary="postgres-operator.crunchydata.com/cluster=$pg,postgres-operator.crunchydata.com/role in (master,primary)"

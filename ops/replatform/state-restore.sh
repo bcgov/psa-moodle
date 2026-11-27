@@ -93,7 +93,16 @@ done < <(jq -c '.[]' "$CAP/workloads.json")
 if in_scope configmaps && [ -f "$CAP/configmaps.json" ]; then
   while read -r cm; do
     name=$(jq -r .name <<< "$cm"); want=$(jq -S .data <<< "$cm")
-    have=$(oc get configmap "$name" -n "$NS" -o json 2>/dev/null | jq -S '.data // {}' || echo missing)
+    # A failed read is not a difference (Pass B run 2 reported a phantom one): retry once, and stop if it still fails.
+    # Only NotFound counts as missing.
+    if ! live=$(oc get configmap "$name" -n "$NS" -o json 2>"$TMP/cm-err"); then
+      sleep 2
+      if ! live=$(oc get configmap "$name" -n "$NS" -o json 2>"$TMP/cm-err"); then
+        grep -q NotFound "$TMP/cm-err" && live='{}' \
+          || { echo "ERROR ConfigMap/$name could not be read: $(head -1 "$TMP/cm-err")" >&2; exit 1; }
+      fi
+    fi
+    have=$(jq -S '.data // {}' <<< "$live")
     if [ "$want" != "$have" ]; then
       jq -n --argjson d "$want" '{data: $d}' > "$TMP/cm-$name.json"
       do_cmd "ConfigMap/$name data differs" oc patch -n "$NS" "configmap/$name" --type=merge --patch-file="$TMP/cm-$name.json"

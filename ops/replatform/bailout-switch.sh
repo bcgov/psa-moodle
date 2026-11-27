@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Hand legacy over to `moodle_bailout` (replatform runbook §14.6, D3, DR01, DR02, DR05, V506). CHANGES THE CLUSTER.
-# Dry run unless --apply. Requires the `prereturn` capture (state-capture.sh) so bailout-unswitch.sh can undo it.
+# Dry run unless --apply. Requires the return's capture (state-capture.sh; CAPTURE, default `prereturn`) so
+# bailout-unswitch.sh can undo it. Use the same CAPTURE for both scripts.
 #
 #   TARGET=galera:<ns>/<galera pod> bailout-switch.sh <namespace> [--apply]
 #
@@ -19,7 +20,8 @@ ENV_CONSUMERS=${ENV_CONSUMERS:-"php cron pod-health-monitor"}
 BACKUP_CM=${BACKUP_CM:-moodle-db-backup-storage-config}
 . "$HERE/rp-mariadb-target.sh"
 . "$HERE/which-db.sh"
-[ -d "$HOME/Moodle/private-backups/state-$NS-prereturn" ] || { echo "no prereturn capture: run state-capture.sh $NS prereturn first" >&2; exit 1; }
+CAPTURE=${CAPTURE:-prereturn}
+[ -d "$HOME/Moodle/private-backups/state-$NS-$CAPTURE" ] || { echo "no $CAPTURE capture: run state-capture.sh $NS $CAPTURE first" >&2; exit 1; }
 step() { echo "== $*"; }
 run() { echo "   $(printf '%q ' "$@")"; if [ "$APPLY" -eq 1 ]; then "$@"; fi; }
 

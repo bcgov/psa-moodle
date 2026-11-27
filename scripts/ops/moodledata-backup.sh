@@ -246,6 +246,9 @@ missing=$(minus "$STAGE/.absent" "$STAGE/source-gaps.txt" | wc -l | tr -d ' '); 
 [ "$missing" = 0 ] || die "coverage: $missing inventory hashes missing from the set (not source gaps): not published; staging kept at $STAGE"
 gaps=$(wc -l < "$STAGE/source-gaps.txt" | tr -d ' ')
 known=${KNOWN_GAPS_FILE:-/dev/null}
+# Configured but absent (its ConfigMap not created at cutover, Pass B run 2): every source gap then counts as new.
+[ -z "${KNOWN_GAPS_FILE:-}" ] || [ -r "$KNOWN_GAPS_FILE" ] \
+  || alert "the known-gaps list is configured but missing ($KNOWN_GAPS_FILE): create its ConfigMap from the cutover's list (runbook §13.2)"
 newgaps=$(minus "$STAGE/source-gaps.txt" "$known" | wc -l | tr -d ' ')
 [ "$newgaps" = 0 ] || alert "live site lacks $newgaps referenced file(s) not in the known list (source gaps; set still published)"
 

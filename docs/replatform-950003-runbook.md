@@ -1,6 +1,8 @@
 # Runbook: replatform 950003 from moodle-nginx to psa-moodle
 
-> **Status: DRAFT v1.4, 2026-11-26.** **Pass A is complete in 950003-dev** and every exercise passed (§0.10). v1.3
+> **Status: DRAFT v1.5, 2026-11-27.** **Pass B run 2 passed in 950003-dev:** the cutover through its commit point, live
+> use, and a full return to legacy, with no data lost. v1.5 fixes what it found (§0.13, [passb-run-2.md](passb-run-2.md)).
+> **Pass A is complete in 950003-dev** and every exercise passed (§0.10). v1.3
 > answered the ninth review ([replatform-950003-v12-review.md](replatform-950003-v12-review.md), V1201–V1209, §0.11)
 > and built **sessions in Postgres with Valkey as Moodle's cache**. v1.4 fixes what a **self-review** of v1.3 found
 > ([replatform-950003-v13-review.md](replatform-950003-v13-review.md), V1301–V1316, §0.12; *not independent*), each
@@ -56,7 +58,7 @@ The service owner is cautious and wants a plan that cannot strand them.
 
 **Please try to break this promise.**
 
-**If you reviewed v1.3,** start at §0.12. v1.4 answers a **self-review** (no independent reviewer was available), so
+**If you reviewed v1.4,** start at §0.13 (Pass B run 2's fixes). **If you reviewed v1.3,** start at §0.12. v1.4 answers a **self-review** (no independent reviewer was available), so
 please re-check its findings as well as their fixes. The questions are at the end of §0.12.
 
 **If you reviewed v1.2,** start at §0.11: check that each of V1201–V1209 is resolved by the code and tests listed
@@ -722,6 +724,30 @@ handling) was closed instead by the director's low-risk clearance (S16).
 1. Check V1301–V1316 against the code and the tests above, and re-check the session and cache implementation as a whole.
 2. Is the bounded interruption, with V1301, V1302 and V1316 fixed, a sound basis for a single Valkey?
 3. Is the load-test specification (§9) now complete enough to schedule?
+
+## 0.13 Changes in v1.5: Pass B run 2's findings (2026-11-27)
+
+Pass B run 2 took 950003-dev through the commit point and live use, then all the way back to legacy (§14), with no data
+lost ([passb-run-2.md](passb-run-2.md) has the results). Everything it found was in the tooling, and each item is fixed
+and tested:
+
+| Finding | What changed | Tested | Where |
+|---|---|---|---|
+| The return left `local_githubsync` uninstalled while legacy dev's code still had it (E7 isn't done on dev's legacy): legacy reported an upgrade pending | **`reverse-version-check`** compares legacy's actual code with the returned data before anything touches legacy; the two ways through are written down (finish E7 first, or reinstate after the switch, as run 2 did) | Stops on run 2's returned copy, naming `local_githubsync`; passes on the untouched freeze (455 plugins) | `local-pipeline.sh`, §14.2 |
+| The handover's proofs were broken: a still-terminating php pod was checked, and the cron probe never got its script (`oc debug -- <command>` passes no stdin) | Shared proofs in `which-db.sh` | In dev: the undo and the second switch both proven | `which-db.sh`, §14.6 |
+| `bailout-unswitch.sh` would have reset the fenced new stack's env (no release name), and failed on bash 3.2 | It names the release; empty-array safe | Dry runs in dev touch legacy's 3 consumers only | `bailout-unswitch.sh` |
+| The switch scripts hard-coded the capture name | `CAPTURE` (default `prereturn`), also exported by `legacy-cleanup.sh` | Dry runs in dev with run 2's capture; an unknown name is refused | §14.6 |
+| The `fenced` deploy failed its check while cron was still in its 30 s shutdown | The workflow waits for the app pods to go, as `writer-fence.sh` does | actionlint | `deploy-950003.yml` |
+| The local counts mistook Crunchy's `pg_stat_statements` views for tables; a Crunchy dump needed hand edits to restore locally | `mdl_` base tables only; a `load-pg` step | Run 2's fenced dump: 511 tables, 1,058,676 rows, identical | `local-pipeline.sh`, §14.2 |
+| The hourly incremental and the 01:00 differential share a minute, so one fails on pgBackRest's lock every night | Incrementals at minute 15 in every profile and the default; a lint guard | The guard passes, and fails on the old schedule | values, `lint.yml` |
+| Two single `oc exec` streams of about 130 MiB arrived short with exit status 0 | `offsite-copy.sh`: chunks checked against their size and file count in the pod, retried; local `oc` updated to 4.18.56 | Dev, read-only: 4 chunks, every SHA-1 right; locally: a deliberately truncated stream retried | §13.3, §14.8 |
+| The new stack's moodledata backup alerted on every legacy gap (1,399 in dev) | A known-gaps ConfigMap at §13.2, named by the profiles; mounted optional, with an explicit alert if it's missing | Render | chart, §13.2 |
+| `state-restore.sh` reported a phantom ConfigMap difference when a read failed | Retry once; only NotFound counts as missing | Dry run in dev | `state-restore.sh` |
+| No tool returned files add-only | `return-files-job.yaml` | Used in run 2: 2 files added, 6,122 intact | §14.4 |
+
+**Not yet applied in dev:** the scripts in the images need a fresh `build-exact`; the chart changes take effect at the
+next deploy (the stack is fenced, so the `fenced` profile); dev's `psa-moodle-known-gaps` ConfigMap is a cluster change
+for the owner to approve.
 
 ## 1. Summary
 
@@ -2469,6 +2495,7 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
 |---|---|---|---|
 | T+? | `deploy-950003` profile `bootstrap` (fenced: Postgres, volumes, Secrets and the backup role; no application), at the target shape within quota (§11.2) | Primary ready; quota not exceeded | §13.4 |
 | T+? | `pg_restore` into the new primary, then `scripts/ops/backup-role-grants.sql` (grants SELECT on `mdl_files` to `moodle-backup` and checks the role has nothing broader) (the nightly backup's role, C8); `compare-content.sh` against the frozen source; `check-filedir` | Only expected differences | Drop and recreate the new database; then §13.4 |
+| T+? | **Known gaps for the nightly backup:** `oc create configmap psa-moodle-known-gaps --from-file=known-gaps.txt=<the freeze's known-missing list>` (hashes only, from the private run folder; never in git). The profiles name it (`backup.moodledata.knownGapsConfigMap`) | The ConfigMap holds the same count as the freeze's list. Without it every backup alerts on every legacy gap (Pass B run 2: 1,399); the backup still runs and says the list is missing | Delete the ConfigMap |
 | T+? | `deploy-950003` profile `precommit`, `site_host=temporary`. Site in **web** maintenance; **clear sessions** (`DELETE FROM mdl_sessions`: the copied rows are legacy's, and no copied session may be used, V1203); purge caches; rebuild the search index; `check-outbound-guard.php`; `encryption-canary.php create` (V1012; after `compare-content`, so the canary is not a difference) | No pending upgrade; no sessions; guard values correct; `configure-cache.php --check` passes (§0.11); canary decrypts | n/a |
 | T+? | Re-verify the temporary Route's restriction (in place since creation, S15); checks by named reviewers through it, with wwwroot on the temporary host | Every response carries `X-PSA-Stack: psa-moodle`; other addresses are refused; a non-reviewer admin is refused | n/a |
 | **CP2** | **Go/no-go: does the new site work for admins?** | | §13.4 |
@@ -2480,7 +2507,7 @@ The timings are placeholders until Phase 1 measures them. Every step is approved
 ### 13.3 The commit point (S11, S12, RB11)
 | T | Step | Verify |
 |---|---|---|
-| T+? | **S12 recovery set:** named pgBackRest backup after the restore, plus the matching moodledata archive and checksums; artifacts read back; the off-site copy written to the owner's encrypted disk and checked against the checksums (Q11) | Each item recorded in the window log |
+| T+? | **S12 recovery set:** named pgBackRest backup after the restore, plus the matching moodledata archive and checksums; artifacts read back; the off-site copy written to the owner's encrypted disk and checked against the checksums (Q11). **Copy off-site with `offsite-copy.sh`**, in chunks of tens of MiB, each checked against its size and file count in the pod: in Pass B run 2 two single streams of about 130 MiB arrived short with exit status 0 | Each item recorded in the window log; `offsite-copy.sh` exits 0 |
 | T+? | **Record the commit point** in the window log: time, the exact command about to run, and the **ELM baseline** (the latest `local_psaelmsync` log id and time on the new site). From the next step on, going back means §14 | Logged before continuing |
 | T+? | `helm upgrade` with `outbound=on` and `cron=on` (this also renders the SMTP egress policy, C9). **This is the commit point, even if the rollout fails part-way** | `check-outbound-guard.php` shows real values; a cron run succeeds |
 | T+? | `unrestrict-routes.sh` on both prod Routes; `php admin/cli/maintenance.php --disable` on the new site; announce | Learners and authors can log in; a test email arrives; the first real ELM completion appears in the plugin's log |
@@ -2547,22 +2574,39 @@ business days for test, 5 for prod.
    The completions to reconcile lie between the §13.3 baseline and this mark (DR06).
 
 ### 14.2 Convert locally
-1. `pg_dump` the new database; restore it into local Postgres.
+1. `pg_dump -Fc` the new database (in the primary's `database` container); `DUMP=<file> local-pipeline.sh <env> load-pg`
+   restores it into a fresh local Postgres, skipping what Crunchy adds and Moodle doesn't own (`pgaudit`,
+   `pg_stat_statements`, the backup role's grants).
 2. Run `tool_dbtransfer` into an empty local MariaDB 10.6.20 with prefix `''` (C14 runtime, exact code, S7).
    - **If it fails on a unique key (RB08):** stop. List the conflicts and resolve each one per `unique-conflicts.md`, with the
      owner deciding. Then run it again.
 3. Run `compare-content.sh` between Postgres and MariaDB.
 4. Run `mariadb-dump` **without `--databases`** and validate the result with `bailout-dump-check.sh` (RB13).
+5. **`LEGACY_NS=<ns> local-pipeline.sh <env> reverse-version-check`:** legacy's *actual* code (its `version.php` files,
+   read from a legacy php pod) against the returned `moodle_bailout`. Every version must match; nothing is allowed.
+   - **A plugin in legacy's code but not in the returned data** means E7 isn't done on that legacy (Pass B run 2, dev:
+     `local_githubsync`). Switched as it is, legacy would report an upgrade pending, send admins to the upgrade page, and
+     cron would refuse to run. Either:
+     - **finish E7 on legacy first** (its own approved change; already a gate for test and prod, §10), then re-run this
+       check; or
+     - **reinstate the plugin after the switch** (Pass B run 2, owner decision): `admin/cli/upgrade.php
+       --non-interactive` on legacy installs only that plugin (core is already equal); copy the plugin's `config_plugins`
+       values and its `task_scheduled` state from the frozen `moodle`; prove its settings (by SHA-256, never printed),
+       task, capabilities and tables equal the frozen ones; `upgrade.php --is-pending` then reports nothing.
 
 ### 14.3 Load (E5)
 1. Create `moodle_bailout` and the `moodle_bailout_import` account, which has privileges on `moodle_bailout.*` only.
 2. Run `bailout-import.sh` through that account.
-3. Run `compare-content.sh` against the local MariaDB.
+3. Compare with the local MariaDB: `TARGET=local:<container> DB=moodle_bailout frozen-checksums.sh record`, then the same
+   `compare` on Galera. Both are MariaDB 10.6.20, so `CHECKSUM TABLE ... EXTENDED` agrees table by table (Pass B run 2:
+   511 of 511).
 
 **If anything fails:** `DROP DATABASE moodle_bailout`. The frozen `moodle` is untouched; retry, abandon (below), or stop.
 
 ### 14.4 Files and durable state (E5, RB07)
-- Copy, add-only, the content hashes referenced in `moodle_bailout.files` that are absent from legacy.
+- Copy, add-only, the content hashes referenced in `moodle_bailout.files` that are absent from legacy
+  (`return-files-job.yaml`: the new stack's volume read-only, `rsync --ignore-existing`, then `check-filedir`;
+  `lang/` and `secret/` compared, never copied).
 - Handle durable dataroot items per `dataroot-inventory.md`. Changed `lang/` customisations are returned after review. The
   key in `secret/` is unchanged on both sides, because the new stack used the copied key.
 - Run `check-filedir` against `moodle_bailout.files`.
@@ -2579,6 +2623,10 @@ Run `bailout-switch.sh`, which:
 
 Legacy stays in CLI maintenance (`climaintenance.html` also keeps cron gated), and the public Routes stay on the fence target.
 **Undo:** `bailout-unswitch.sh` puts the frozen `moodle` back everywhere, restores the backup target and revokes the grant.
+Both scripts take the return's capture from `CAPTURE` (default `prereturn`; give both the same), and `bailout-unswitch.sh`
+names the release (`RELEASE`, default `psa-moodle`) so the new stack's own objects are never touched. Their proofs
+(`which-db.sh`) wait out php pods still terminating and give the cron probe its script as `php -r` code, because `oc
+debug` passes no stdin to a command (both broke the first switch in Pass B run 2).
 
 ### 14.7 Caches and validation (RB02)
 Redis is already running (D1).
@@ -2598,7 +2646,7 @@ Legacy has **no** outbound guard, so nobody triggers completions during these ch
 
 ### 14.8 Go/no-go 2 and separate approval: reopen legacy
 1. **Recovery set first (S12, DR05):** a verified backup of `moodle_bailout` from the retargeted backup job, plus the
-   matching moodledata, checksummed, with the off-site copy on the owner's encrypted disk.
+   matching moodledata, checksummed, with the off-site copy on the owner's encrypted disk (`offsite-copy.sh`, as §13.3).
 2. Run `unrestrict-routes.sh`. Then set the Routes, maintenance mode and cron to the **`precutover`** capture's values: the
    state before the original cutover, not the frozen `prereturn` values. **`DB_NAME` stays `moodle_bailout` on every
    consumer, and the backup stays retargeted.** Only Routes, maintenance mode and cron come from `precutover`. Announce.
