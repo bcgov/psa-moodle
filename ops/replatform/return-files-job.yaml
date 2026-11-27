@@ -1,0 +1,71 @@
+# Return files to legacy, ADD-ONLY (replatform runbook §14.4, RB07). CHANGES LEGACY MOODLEDATA: an approved E5 step.
+# First used in Pass B run 2 (950003-dev, 2026-11-27): 2 new files added, check-filedir 6,122 intact, 0 unexpected.
+#
+#   1. referenced-files.sql against the returned database (prefix '' on legacy) -> referenced.tsv;
+#      known-missing.txt = legacy's own gaps from the freeze (the forward check job's M lines).
+#   2. oc -n <ns> create configmap rp-return-files-list --from-file=referenced.tsv=... --from-file=known-missing.txt=...
+#   3. OPS_IMAGE=<registry>/psa-moodle/ops@sha256:<digest> envsubst '$OPS_IMAGE' < ops/replatform/return-files-job.yaml \
+#        | oc -n <ns> apply -f -
+#   4. oc -n <ns> logs job/rp-return-files; then delete the Job and the ConfigMap.
+#
+# Why not moodledata-copy.sh in reverse: it also copies lang/ and secret/, which a return must not overwrite (changed
+# lang/ customisations come back only after review; secret/ is the same key on both sides). This Job only compares them.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rp-return-files
+  labels: {app.kubernetes.io/name: rp-return-files, app.kubernetes.io/part-of: replatform-950003}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: rp-return-files, app.kubernetes.io/part-of: replatform-950003}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: copy
+          image: ${OPS_IMAGE}
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              S=/src/filedir; D=/dst/filedir; : > /tmp/new; have=0; add=0; neither=0
+              while IFS=$'\t' read -r h _ _; do
+                p="${h:0:2}/${h:2:2}/$h"
+                if [ -e "$D/$p" ]; then have=$((have+1))
+                elif [ -e "$S/$p" ]; then echo "$p" >> /tmp/new; add=$((add+1))
+                else neither=$((neither+1)); fi
+              done < /list/referenced.tsv
+              echo "referenced: $(wc -l < /list/referenced.tsv); already on legacy: $have; to add: $add; on neither side: $neither"
+              rsync -rlt --ignore-existing --files-from=/tmp/new "$S/" "$D/"
+              sed 's|.*/|added |' /tmp/new
+              sum() { if [ -d "$1" ]; then (cd "$1" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | cut -c1-16); else echo none; fi; }
+              for d in lang secret; do echo "$d/: new stack $(sum /src/$d), legacy $(sum /dst/$d)"; done
+              check-filedir.sh /dst/filedir /list/referenced.tsv /list/known-missing.txt
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: newstack, mountPath: /src, readOnly: true}
+            - {name: legacy, mountPath: /dst}
+            - {name: list, mountPath: /list, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: newstack
+          persistentVolumeClaim: {claimName: psa-moodle-moodledata, readOnly: true}
+        - name: legacy
+          persistentVolumeClaim: {claimName: moodle-data}
+        - name: list
+          configMap: {name: rp-return-files-list}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}

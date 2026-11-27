@@ -80,3 +80,59 @@ until the owner decides (§13.4 step 6).
 ## Estimates
 Session 1: about 2.5 h (75 minutes to CP3, as window 1, plus the commit point and live use). Session 2: about 2.5–3 h;
 window 1's timings and the dry runs set each session's latest-abort time.
+
+## Result (2026-11-26/27, both sessions on the same evening)
+
+**Pass B passed: the cutover through its commit point, live use, and a full return to legacy, with no data lost.**
+The window log, extracts and recovery sets are in the private run folder `passb-950003-dev-w2-20261126T222909Z`.
+
+### Session 1: 22:29Z to 00:07Z
+| Step | Result |
+|---|---|
+| Freeze | E1 at 22:29Z; quiescence over 5 minutes on all 5 Galera nodes (commit counter unchanged, 0 connections) |
+| CP1 (22:46Z) | final dump 713/713 tables identical to live; files 6,120 intact, the 1,399 known gaps, 0 unexpected; conversion 511 tables, 1,057,286 rows |
+| Load | `pg_restore` 9 s; 511/511 tables identical to the local copy |
+| CP2 (23:39Z) | admin password only (P4); the encryption canary decrypts |
+| CP3 (23:51Z) | a plain user's SSO created a new, non-admin account; no auto-link to admin; no writes outside the reviewers |
+| Commit point (23:57Z) | S12 set: named pgBackRest full backup (18 s), the moodledata backup by hand (**73 s pause**, first run on real data), off-site copy read back; site open 23:58:52Z, public to anyone |
+| Verify | test email reached the owner (diverted); 76 cron task runs, 0 failed; the cron-driven ELM sync reached the mock |
+| Live use | synthetic course, 3 learners, 2 completions (the mock recorded both, the copy logged both), accent-distinct tags, files created/deleted/replaced, an `.mbz` restore, a quiz attempt |
+
+### Session 2: 00:11Z to 01:39Z
+| Step | Result |
+|---|---|
+| Prep | `prereturn` capture; frozen `moodle` checksums (713 tables); the reverse precheck found exactly the accent-tag collision; the owner chose rename (option 1); clean on the fenced dump |
+| DR06 | learner 3's completion sent with the mock on hold, its php pod killed mid-request: completed in Moodle, received by the mock, not logged |
+| Fence (00:45Z) | `fenced` profile; `verify-fenced.sh` FENCED; quiescence: only management sessions, no rows written |
+| Reverse | 111 s; 511 tables, 1,058,676 rows identical; content differs only in `log_display`; dump check accepted |
+| Load | `moodle_bailout` via the restricted account, 70 s; every table's `CHECKSUM TABLE EXTENDED` equal to the local copy; on all 5 nodes |
+| Files | add-only: exactly the 2 new files; check-filedir 6,122 intact, 0 unexpected; `lang/` and `secret/` identical |
+| GNG1 | go (owner) |
+| Handover | first `bailout-switch` run NOT PROVEN (proof defects, below): S10 stop, `bailout-unswitch` back to the frozen `moodle` (proven), fixed, switched again: proven |
+| Validation | the returned sessions cleared; **a cookie saved before the return refused**; session 1's records and files present; admin and SSO (matched the session 1 account); a fresh ID |
+| githubsync | legacy reported an upgrade pending: `local_githubsync` absent from the returned data (E7 removed it). S10 stop; owner: install it (`upgrade.php`) and restore its settings and task from the frozen `moodle`; then equal to frozen, nothing pending |
+| GNG2 (01:37Z) | separate approval; recovery set (legacy backup of `moodle_bailout` verified; moodledata 6,122/6,122 read back); Routes, maintenance and cron from `passb2-precutover`; every consumer on `moodle_bailout` |
+| ELM (§14.9) | 2 OK; 1 **received, not logged** (the DR06 request): nothing re-sent |
+
+### Defects found, fixed in the same commit as this record
+- **`bailout-switch.sh` / `bailout-unswitch.sh` proofs** listed php pods still terminating, and the cron probe never
+  got its script (`oc debug -- <command>` passes no stdin). Shared helpers in `which-db.sh`.
+- **`bailout-unswitch.sh`** didn't pass the release name to `state-restore.sh`: its dry run would have reset the fenced
+  new stack's php and cron env. It also failed on bash 3.2 with an empty array.
+- **No tool returned files add-only:** `return-files-job.yaml` (used in this run).
+
+### Open follow-ups
+1. **Runbook: a return step for plugins E7 removed** (githubsync): install from legacy's code, then settings and task
+   state from the frozen `moodle`. Check prod's githubsync data before relying on it.
+2. `deploy-950003` `fenced`: wait for the app pods to finish terminating before `verify-fenced.sh` (failed on cron's
+   30-second grace).
+3. `local-pipeline.sh`: count `mdl_` base tables only, and a step that loads a Crunchy dump locally (skip `pgaudit`,
+   `pg_stat_statements` and grants).
+4. Chart: pgBackRest incrementals at minute 0 collide with the 01:00 differential/full (lock; retried, succeeded).
+5. `oc exec` streams over about 125 MiB were cut off (local `oc` 4.10): off-site copies in verified chunks; update the
+   local client to 4.18, as the workflow uses.
+6. Seed the new stack's moodledata-backup known gaps with legacy dev's 1,399 (it alerts on every run).
+7. `bailout-switch.sh` / `bailout-unswitch.sh` hard-code the capture name `prereturn`.
+8. Legacy dev's ELM endpoints now point at the mock (they came back from session 1); restore them when the owner
+   decides, then remove the mock. Legacy dev's admin password is the one set at P4 (returned with the data).
+9. The new stack stays fenced until the owner decides (§13.4 step 6).

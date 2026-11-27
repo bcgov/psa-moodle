@@ -18,6 +18,7 @@ APP_USER=${APP_USER:-moodle}
 ENV_CONSUMERS=${ENV_CONSUMERS:-"php cron pod-health-monitor"}
 BACKUP_CM=${BACKUP_CM:-moodle-db-backup-storage-config}
 . "$HERE/rp-mariadb-target.sh"
+. "$HERE/which-db.sh"
 [ -d "$HOME/Moodle/private-backups/state-$NS-prereturn" ] || { echo "no prereturn capture: run state-capture.sh $NS prereturn first" >&2; exit 1; }
 step() { echo "== $*"; }
 run() { echo "   $(printf '%q ' "$@")"; if [ "$APPLY" -eq 1 ]; then "$@"; fi; }
@@ -41,12 +42,8 @@ run oc rollout status -n "$NS" deploy/php --timeout=600s
 step "3. prove every consumer"
 if [ "$APPLY" -eq 1 ]; then
   bad=0
-  for pod in $(oc get pods -n "$NS" -l deployment=php -o jsonpath='{.items[*].metadata.name}'); do
-    out=$(oc exec -i -n "$NS" "$pod" -c php -- php < "$HERE/which-db.php"); echo "   php $pod: $out"
-    grep -q '^dbname=moodle_bailout .*connected=yes' <<< "$out" || bad=1
-  done
-  out=$(oc debug -n "$NS" deploy/cron --one-container -- sh -c 'php' < "$HERE/which-db.php" 2>/dev/null | grep '^dbname=' || true)
-  echo "   cron probe: ${out:-no output}"; grep -q '^dbname=moodle_bailout .*connected=yes' <<< "$out" || bad=1
+  prove_php moodle_bailout || bad=1
+  prove_cron moodle_bailout || bad=1
   for d in $ENV_CONSUMERS; do
     v=$(oc get deploy "$d" -n "$NS" -o jsonpath='{.spec.template.spec.containers[*].env[?(@.name=="DB_NAME")].value}')
     echo "   $d template DB_NAME=$v"; [ "$v" = "moodle_bailout" ] || bad=1

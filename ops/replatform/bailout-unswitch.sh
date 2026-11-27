@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Undo the handover (replatform runbook §14.6 undo, D3, V702 cleanup step 2). CHANGES THE CLUSTER. Dry run unless --apply.
 #
-#   TARGET=galera:<ns>/<galera pod> bailout-unswitch.sh <namespace> [--apply]
+#   TARGET=galera:<ns>/<galera pod> [RELEASE=psa-moodle] bailout-unswitch.sh <namespace> [--apply]
 #
 # 1. Restores, from the `prereturn` capture, every consumer's env (DB_NAME back to its Secret reference) and the backup
 #    ConfigMap, using state-restore.sh; restarts the backup.
@@ -14,24 +14,23 @@ NS=${1:?namespace}
 APPLY=0; [ "${2:-}" = "--apply" ] && APPLY=1
 APP_USER=${APP_USER:-moodle}
 . "$HERE/rp-mariadb-target.sh"
+. "$HERE/which-db.sh"
 CAP="$HOME/Moodle/private-backups/state-$NS-prereturn"
 [ -d "$CAP" ] || { echo "no prereturn capture" >&2; exit 1; }
 
 echo "== 1. env and backup target from the prereturn capture"
 args=(); [ "$APPLY" -eq 1 ] && args+=(--apply)
-RESTORE_SCOPE=env,configmaps "$HERE/state-restore.sh" "$NS" prereturn "${args[@]}" || true
+# The release name makes state-restore skip the new stack's Helm-owned Deployments: without it, the fenced stack's env
+# would go back to its unfenced values (Pass B run 2 dry run, 2026-11-27). ${args[@]+...}: bash 3.2 and an empty array.
+RESTORE_SCOPE=env,configmaps "$HERE/state-restore.sh" "$NS" prereturn "${RELEASE:-psa-moodle}" ${args[@]+"${args[@]}"} || true
 if [ "$APPLY" -eq 0 ]; then echo "dry run: nothing changed"; exit 0; fi
 oc rollout restart -n "$NS" deploy/moodle-db-backup-storage
 oc rollout status -n "$NS" deploy/php --timeout=600s
 
 echo "== 2. prove php and cron use moodle"
 bad=0
-for pod in $(oc get pods -n "$NS" -l deployment=php -o jsonpath='{.items[*].metadata.name}'); do
-  out=$(oc exec -i -n "$NS" "$pod" -c php -- php < "$HERE/which-db.php"); echo "   php $pod: $out"
-  grep -q '^dbname=moodle .*connected=yes' <<< "$out" || bad=1
-done
-out=$(oc debug -n "$NS" deploy/cron --one-container -- sh -c 'php' < "$HERE/which-db.php" 2>/dev/null | grep '^dbname=' || true)
-echo "   cron probe: ${out:-no output}"; grep -q '^dbname=moodle .*connected=yes' <<< "$out" || bad=1
+prove_php moodle || bad=1
+prove_cron moodle || bad=1
 [ "$bad" -eq 0 ] || { echo "NOT PROVEN: the grant stays until php and cron use moodle" >&2; exit 1; }
 
 echo "== 3. revoke $APP_USER on moodle_bailout.*"
